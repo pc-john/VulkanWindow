@@ -29,8 +29,7 @@ public:
 	~App();
 
 	void init();
-	void recreateSwapchain(VulkanWindow& window,
-		const vk::SurfaceCapabilitiesKHR& surfaceCapabilities, vk::Extent2D newSurfaceExtent);
+	void resize(VulkanWindow& window, const vk::SurfaceCapabilitiesKHR& surfaceCapabilities, vk::Extent2D newSurfaceExtent);
 	void frame(VulkanWindow& window);
 	void mouseMove(VulkanWindow& window, const VulkanWindow::MouseState& mouseState);
 	void mouseButton(VulkanWindow&, size_t button, VulkanWindow::ButtonState buttonState, const VulkanWindow::MouseState& mouseState);
@@ -461,8 +460,8 @@ void App::init()
 
 /** Recreate swapchain and pipeline callback method.
  *  The method is usually called after the window resize and on the application start. */
-void App::recreateSwapchain(VulkanWindow&, const vk::SurfaceCapabilitiesKHR& surfaceCapabilities,
-                            vk::Extent2D newSurfaceExtent)
+void App::resize(VulkanWindow&, const vk::SurfaceCapabilitiesKHR& surfaceCapabilities,
+                 vk::Extent2D newSurfaceExtent)
 {
 	// clear resources
 	for(auto v : swapchainImageViews)  device.destroy(v);
@@ -750,11 +749,11 @@ void App::frame(VulkanWindow&)
 		);
 	if(r != vk::Result::eSuccess) {
 		if(r == vk::Result::eSuboptimalKHR) {
-			window.scheduleSwapchainResize();
+			window.scheduleResize();
 			cout << "acquire result: Suboptimal" << endl;
 			return;
 		} else if(r == vk::Result::eErrorOutOfDateKHR) {
-			window.scheduleSwapchainResize();
+			window.scheduleResize();
 			cout << "acquire error: OutOfDate" << endl;
 			return;
 		} else
@@ -840,10 +839,10 @@ void App::frame(VulkanWindow&)
 		);
 	if(r != vk::Result::eSuccess) {
 		if(r == vk::Result::eSuboptimalKHR) {
-			window.scheduleSwapchainResize();
+			window.scheduleResize();
 			cout << "present result: Suboptimal" << endl;
 		} else if(r == vk::Result::eErrorOutOfDateKHR) {
-			window.scheduleSwapchainResize();
+			window.scheduleResize();
 			cout << "present error: OutOfDate" << endl;
 		} else
 			throw runtime_error("Vulkan error: vkQueuePresentKHR() failed with error " + to_string(r) + ".");
@@ -919,9 +918,9 @@ int main(int argc, char* argv[])
 
 		App app(argc, argv);
 		app.init();
-		app.window.setRecreateSwapchainCallback(
+		app.window.setResizeCallback(
 			bind(
-				&App::recreateSwapchain,
+				&App::resize,
 				&app,
 				placeholders::_1,
 				placeholders::_2,
