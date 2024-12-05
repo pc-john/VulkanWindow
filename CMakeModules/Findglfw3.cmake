@@ -1,13 +1,17 @@
 #
 # Module for finding GLFW3
 #
-# Config-based find is attempted first.
-# If it fails standard detection is performed.
-# If successfull, glfw3 target will be created and following variables will be set:
-#    glfw3_FOUND
-#    glfw3_INCLUDE_DIR
-#    glfw3_LIBRARY
-#    glfw3_DLL (Win32 only)
+# It attempts to perform config-based find first. If it fails, it attempts to find includes and libraries using standard way.
+#
+# Targets (used by both - config find and standard find):
+#    glfw (glfw is used instead of glfw3 because of glfw uses it like this)
+#
+# Cache variables (used by both - config find and standard find):
+#    glfw_DLL (on Win32 only)
+#
+# Cache variables that are used if config-based find fails:
+#    glfw_INCLUDE_DIR
+#    glfw_LIBRARY
 #
 
 
@@ -22,11 +26,8 @@ if(NOT ${CMAKE_FIND_PACKAGE_NAME}_INCLUDE_DIR AND NOT ${CMAKE_FIND_PACKAGE_NAME}
 	set(${CMAKE_FIND_PACKAGE_NAME}_LIBRARY ${CMAKE_FIND_PACKAGE_NAME}_LIBRARY-NOTFOUND CACHE FILEPATH "Path to ${CMAKE_FIND_PACKAGE_NAME} library.")
 
 	# find GLFW DLL
-	if(TARGET ${CMAKE_FIND_PACKAGE_NAME} AND WIN32)
-		find_file(${CMAKE_FIND_PACKAGE_NAME}_DLL
-			NAMES
-				glfw3.dll
-		)
+	if(WIN32)
+		set(${CMAKE_FIND_PACKAGE_NAME}_DLL ${CMAKE_FIND_PACKAGE_NAME}_DLL-NOTFOUND CACHE FILEPATH "Path to ${CMAKE_FIND_PACKAGE_NAME}.dll that will be copied into the directory of built executable.")
 	endif()
 
 endif()
@@ -97,14 +98,35 @@ if(NOT ${CMAKE_FIND_PACKAGE_NAME}_FOUND)
 		REASON_FAILURE_MESSAGE ${errorMessage}
 	)
 
+	# test existence
+	if(NOT EXISTS "${${CMAKE_FIND_PACKAGE_NAME}_INCLUDE_DIR}")
+		message(FATAL_ERROR "${CMAKE_FIND_PACKAGE_NAME}_INCLUDE_DIR does not point to existing directory.")
+	endif()
+	if(NOT EXISTS "${${CMAKE_FIND_PACKAGE_NAME}_LIBRARY}")
+		message(FATAL_ERROR "${CMAKE_FIND_PACKAGE_NAME}_LIBRARY does not point to existing file.")
+	endif()
+
 	# target
-	if(${CMAKE_FIND_PACKAGE_NAME}_FOUND AND NOT TARGET glfw)
-		add_library(glfw INTERFACE IMPORTED)
+	if(NOT TARGET glfw)
+		add_library(glfw SHARED IMPORTED)
 		set_target_properties(glfw PROPERTIES
 			INTERFACE_INCLUDE_DIRECTORIES "${${CMAKE_FIND_PACKAGE_NAME}_INCLUDE_DIR}"
 			INTERFACE_LINK_LIBRARIES "${${CMAKE_FIND_PACKAGE_NAME}_LIBRARY}"
+			IMPORTED_IMPLIB "${${CMAKE_FIND_PACKAGE_NAME}_LIBRARY}"
+			IMPORTED_LOCATION "${${CMAKE_FIND_PACKAGE_NAME}_DLL}"
 		)
-		set(${CMAKE_FIND_PACKAGE_NAME}_DIR "${CMAKE_FIND_PACKAGE_NAME}_DIR-NOTFOUND" CACHE PATH "${CMAKE_FIND_PACKAGE_NAME} config directory." FORCE)
 	endif()
 
+endif()
+
+# get glfw3_DLL
+if(TARGET glfw AND (NOT DEFINED CACHE{${CMAKE_FIND_PACKAGE_NAME}_DLL} OR ${CMAKE_FIND_PACKAGE_NAME}_DLL STREQUAL "${CMAKE_FIND_PACKAGE_NAME}_DLL-NOTFOUND") AND WIN32)
+	get_target_property(glfw3_DLL glfw IMPORTED_LOCATION)
+	cmake_path(NORMAL_PATH glfw3_DLL)
+	set(glfw3_DLL "${glfw3_DLL}" CACHE FILEPATH "Path to glfw3.dll that will be copied into the directory of built executable." FORCE)
+endif()
+
+# make alias target glfw3
+if(NOT TARGET glfw3 AND TARGET glfw)
+	add_library(glfw3 ALIAS glfw)
 endif()
