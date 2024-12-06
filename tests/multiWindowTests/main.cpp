@@ -1,4 +1,5 @@
 #include "VulkanWindow.h"
+#include <vulkan/vulkan.hpp>
 #include <algorithm>
 #include <chrono>
 #include <iostream>
@@ -61,20 +62,21 @@ void Window::destroyMembers() noexcept
 
 	// wait for device idle state
 	// (to prevent errors during destruction of Vulkan resources)
+	vk::Device device = vk::Device(_device);
 	try {
-		_device.waitIdle();
+		device.waitIdle();
 	} catch(vk::Error& e) {
 		cout << "Failed because of Vulkan exception: " << e.what() << endl;
 	}
 
 	// destroy resources
-	_device.destroy(pipeline);
+	device.destroy(pipeline);
 	pipeline = nullptr;
-	for(auto f : framebuffers)  _device.destroy(f);
+	for(auto f : framebuffers)  device.destroy(f);
 	framebuffers.clear();
-	for(auto v : swapchainImageViews)  _device.destroy(v);
+	for(auto v : swapchainImageViews)  device.destroy(v);
 	swapchainImageViews.clear();
-	_device.destroy(swapchain);
+	device.destroy(swapchain);
 	swapchain = nullptr;
 }
 
@@ -87,7 +89,7 @@ public:
 	~App();
 
 	void init();
-	void recreateSwapchain(VulkanWindow& window,
+	void resize(VulkanWindow& window,
 		const vk::SurfaceCapabilitiesKHR& surfaceCapabilities, vk::Extent2D newSurfaceExtent);
 	void frame(VulkanWindow& window);
 
@@ -530,7 +532,7 @@ void App::init()
 
 /** Recreate swapchain and pipeline callback method.
  *  The method is usually called after the window resize and on the application start. */
-void App::recreateSwapchain(VulkanWindow& w, const vk::SurfaceCapabilitiesKHR& surfaceCapabilities, vk::Extent2D newSurfaceExtent)
+void App::resize(VulkanWindow& w, const vk::SurfaceCapabilitiesKHR& surfaceCapabilities, vk::Extent2D newSurfaceExtent)
 {
 	Window& window = static_cast<Window&>(w);
 
@@ -799,11 +801,11 @@ void App::frame(VulkanWindow& w)
 		);
 	if(r != vk::Result::eSuccess) {
 		if(r == vk::Result::eSuboptimalKHR) {
-			window.scheduleSwapchainResize();
+			window.scheduleResize();
 			cout << "acquire result: Suboptimal" << endl;
 			return;
 		} else if(r == vk::Result::eErrorOutOfDateKHR) {
-			window.scheduleSwapchainResize();
+			window.scheduleResize();
 			cout << "acquire error: OutOfDate" << endl;
 			return;
 		} else
@@ -869,10 +871,10 @@ void App::frame(VulkanWindow& w)
 		);
 	if(r != vk::Result::eSuccess) {
 		if(r == vk::Result::eSuboptimalKHR) {
-			window.scheduleSwapchainResize();
+			window.scheduleResize();
 			cout << "present result: Suboptimal" << endl;
 		} else if(r == vk::Result::eErrorOutOfDateKHR) {
-			window.scheduleSwapchainResize();
+			window.scheduleResize();
 			cout << "present error: OutOfDate" << endl;
 		} else
 			throw runtime_error("Vulkan error: vkQueuePresentKHR() failed with error " + to_string(r) + ".");
@@ -893,9 +895,10 @@ int main(int argc, char* argv[])
 		App app(argc, argv);
 		app.init();
 		for(Window& w : app.windowList) {
-			w.setRecreateSwapchainCallback(
+			w.setDevice(app.device, app.physicalDevice);
+			w.setResizeCallback(
 				bind(
-					&App::recreateSwapchain,
+					&App::resize,
 					&app,
 					placeholders::_1,
 					placeholders::_2,
@@ -903,9 +906,7 @@ int main(int argc, char* argv[])
 				)
 			);
 			w.setFrameCallback(
-				bind(&App::frame, &app, placeholders::_1),
-				app.physicalDevice,
-				app.device
+				bind(&App::frame, &app, placeholders::_1)
 			);
 			w.setCloseCallback(
 				bind(

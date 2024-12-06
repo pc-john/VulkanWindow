@@ -3,18 +3,18 @@ set(APP_NAME mandelbrot)
 project(${APP_NAME})
 
 set(APP_SOURCES
-    main.cpp
-    ${CMAKE_SOURCE_DIR}/src/VulkanWindow.cpp
-   )
+	main.cpp
+	${CMAKE_SOURCE_DIR}/src/VulkanWindow.cpp
+)
 
 set(APP_INCLUDES
-    ${CMAKE_SOURCE_DIR}/src/VulkanWindow.h
-   )
+	${CMAKE_SOURCE_DIR}/src/VulkanWindow.h
+)
 
 set(APP_SHADERS
-    shader.vert
-    shader.frag
-   )
+	shader.vert
+	shader.frag
+)
 
 # dependencies
 find_package(Vulkan REQUIRED)
