@@ -1401,10 +1401,18 @@ VulkanWindow::VulkanWindow(VulkanWindow&& other) noexcept
 	_device = move(other._device);
 	_surface = other._surface;
 	other._surface = nullptr;
+	_vulkanGetInstanceProcAddr = other._vulkanGetInstanceProcAddr;
+	_vulkanDeviceWaitIdle = other._vulkanDeviceWaitIdle;
+	_vulkanGetPhysicalDeviceSurfaceCapabilitiesKHR = other._vulkanGetPhysicalDeviceSurfaceCapabilitiesKHR;
 	_surfaceExtent = other._surfaceExtent;
 	_resizePending = other._resizePending;
 	_resizeCallback = move(other._resizeCallback);
 	_closeCallback = move(other._closeCallback);
+	_mouseState = other._mouseState;
+	_mouseMoveCallback = move(other._mouseMoveCallback);
+	_mouseButtonCallback = move(other._mouseButtonCallback);
+	_mouseWheelCallback = move(other._mouseWheelCallback);
+	_keyCallback = move(other._keyCallback);
 }
 
 
@@ -1549,10 +1557,18 @@ VulkanWindow& VulkanWindow::operator=(VulkanWindow&& other) noexcept
 	_device = move(other._device);
 	_surface = other._surface;
 	other._surface = nullptr;
+	_vulkanGetInstanceProcAddr = other._vulkanGetInstanceProcAddr;
+	_vulkanDeviceWaitIdle = other._vulkanDeviceWaitIdle;
+	_vulkanGetPhysicalDeviceSurfaceCapabilitiesKHR = other._vulkanGetPhysicalDeviceSurfaceCapabilitiesKHR;
 	_surfaceExtent = other._surfaceExtent;
 	_resizePending = other._resizePending;
 	_resizeCallback = move(other._resizeCallback);
 	_closeCallback = move(other._closeCallback);
+	_mouseState = other._mouseState;
+	_mouseMoveCallback = move(other._mouseMoveCallback);
+	_mouseButtonCallback = move(other._mouseButtonCallback);
+	_mouseWheelCallback = move(other._mouseWheelCallback);
+	_keyCallback = move(other._keyCallback);
 
 	return *this;
 }
