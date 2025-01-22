@@ -8,7 +8,7 @@ using namespace std;
 
 
 // constants
-constexpr const char* appName = "testMultiWindow";
+constexpr const char* appName = "MultiWindowTest";
 
 
 // shader code in SPIR-V binary

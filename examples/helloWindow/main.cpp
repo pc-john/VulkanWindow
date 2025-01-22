@@ -9,16 +9,7 @@ using namespace std;
 
 
 // constants
-constexpr const char* appName = "Mandelbrot";
-
-
-// shader code in SPIR-V binary
-static const uint32_t vsSpirv[] = {
-#include "shader.vert.spv"
-};
-static const uint32_t fsSpirv[] = {
-#include "shader.frag.spv"
-};
+constexpr const char* appName = "HelloWindow";
 
 
 // global application data
@@ -31,10 +22,6 @@ public:
 	void init();
 	void resize(VulkanWindow& window, const vk::SurfaceCapabilitiesKHR& surfaceCapabilities, vk::Extent2D newSurfaceExtent);
 	void frame(VulkanWindow& window);
-	void mouseMove(VulkanWindow& window, const VulkanWindow::MouseState& mouseState);
-	void mouseButton(VulkanWindow&, size_t button, VulkanWindow::ButtonState buttonState, const VulkanWindow::MouseState& mouseState);
-	void mouseWheel(VulkanWindow& window, float wheelX, float wheelY, const VulkanWindow::MouseState& mouseState);
-	void key(VulkanWindow& window, VulkanWindow::KeyState keyState, VulkanWindow::ScanCode scanCode);
 
 	// Vulkan instance must be destructed as the last Vulkan handle.
 	// It is probably good idea to destroy it after the display connection.
@@ -62,21 +49,6 @@ public:
 	vk::Semaphore imageAvailableSemaphore;
 	vk::Semaphore renderFinishedSemaphore;
 	vk::Fence renderFinishedFence;
-	vk::ShaderModule vsModule;
-	vk::ShaderModule fsModule;
-	vk::PipelineLayout pipelineLayout;
-	vk::Pipeline pipeline;
-
-	enum class FrameUpdateMode { OnDemand, Continuous, MaxFrameRate };
-	FrameUpdateMode frameUpdateMode = FrameUpdateMode::OnDemand;
-	size_t frameID = ~size_t(0);
-	size_t fpsNumFrames = ~size_t(0);
-	chrono::high_resolution_clock::time_point fpsStartTime;
-
-	float valueGradient = -1.f;
-	uint32_t windowHeight;
-	float minX, minY, maxX, maxY;
-	void setView(float coordX, float coordY, float valueX, float valueY);
 
 };
 
@@ -84,27 +56,6 @@ public:
 /// Construct application object
 App::App(int argc, char** argv)
 {
-	// process command-line arguments
-	for(int i=1; i<argc; i++)
-		if(strcmp(argv[i], "--on-demand") == 0)
-			frameUpdateMode = FrameUpdateMode::OnDemand;
-		else if(strcmp(argv[i], "--continuous") == 0)
-			frameUpdateMode = FrameUpdateMode::Continuous;
-		else if(strcmp(argv[i], "--max-frame-rate") == 0)
-			frameUpdateMode = FrameUpdateMode::MaxFrameRate;
-		else {
-			if(strcmp(argv[i], "--help") != 0 && strcmp(argv[i], "-h") != 0)
-				cout << "Unrecognized option: " << argv[i] << endl;
-			cout << appName << " usage:\n"
-			        "   --help or -h:  usage information\n"
-			        "   --on-demand:   on demand window content refresh,\n"
-			        "                  this conserves computing resources\n"
-			        "   --continuous:  constantly update window content using\n"
-			        "                  screen refresh rate, this is the default\n"
-			        "   --max-frame-rate:  ignore screen refresh rate, update\n"
-			        "                      window content as often as possible\n" << endl;
-			exit(99);
-		}
 }
 
 
@@ -122,10 +73,6 @@ App::~App()
 
 		// destroy handles
 		// (the handles are destructed in certain (not arbitrary) order)
-		device.destroy(pipeline);
-		device.destroy(pipelineLayout);
-		device.destroy(fsModule);
-		device.destroy(vsModule);
 		device.destroy(renderFinishedFence);
 		device.destroy(renderFinishedSemaphore);
 		device.destroy(imageAvailableSemaphore);
@@ -419,42 +366,6 @@ void App::init()
 				vk::FenceCreateFlagBits::eSignaled  // flags
 			)
 		);
-
-	// create shader modules
-	vsModule =
-		device.createShaderModule(
-			vk::ShaderModuleCreateInfo(
-				vk::ShaderModuleCreateFlags(),  // flags
-				sizeof(vsSpirv),  // codeSize
-				vsSpirv  // pCode
-			)
-		);
-	fsModule =
-		device.createShaderModule(
-			vk::ShaderModuleCreateInfo(
-				vk::ShaderModuleCreateFlags(),  // flags
-				sizeof(fsSpirv),  // codeSize
-				fsSpirv  // pCode
-			)
-		);
-
-	// pipeline layout
-	pipelineLayout =
-		device.createPipelineLayout(
-			vk::PipelineLayoutCreateInfo{
-				vk::PipelineLayoutCreateFlags(),  // flags
-				0,       // setLayoutCount
-				nullptr, // pSetLayouts
-				1,       // pushConstantRangeCount
-				array{   // pPushConstantRanges
-					vk::PushConstantRange{
-						vk::ShaderStageFlagBits::eVertex | vk::ShaderStageFlagBits::eFragment,  // stage flags
-						0,  // offset
-						32,  // size
-					},
-				}.data()
-			}
-		);
 }
 
 
@@ -468,8 +379,6 @@ void App::resize(VulkanWindow&, const vk::SurfaceCapabilitiesKHR& surfaceCapabil
 	swapchainImageViews.clear();
 	for(auto f : framebuffers)  device.destroy(f);
 	framebuffers.clear();
-	device.destroy(pipeline);
-	pipeline = nullptr;
 
 	// print info
 	cout << "Recreating swapchain (extent: " << newSurfaceExtent.width << "x" << newSurfaceExtent.height
@@ -497,21 +406,7 @@ void App::resize(VulkanWindow&, const vk::SurfaceCapabilitiesKHR& surfaceCapabil
 				array<uint32_t, 2>{graphicsQueueFamily, presentationQueueFamily}.data(),  // pQueueFamilyIndices
 				surfaceCapabilities.currentTransform,    // preTransform
 				vk::CompositeAlphaFlagBitsKHR::eOpaque,  // compositeAlpha
-				[](FrameUpdateMode frameUpdateMode, vk::PhysicalDevice physicalDevice, VulkanWindow& window)  // presentMode
-					{
-						// for MaxFrameRate, try Mailbox and Immediate if they are available
-						if(frameUpdateMode == FrameUpdateMode::MaxFrameRate) {
-							vector<vk::PresentModeKHR> modes =
-								physicalDevice.getSurfacePresentModesKHR(window.surface());
-							if(find(modes.begin(), modes.end(), vk::PresentModeKHR::eMailbox) != modes.end())
-								return vk::PresentModeKHR::eMailbox;
-							if(find(modes.begin(), modes.end(), vk::PresentModeKHR::eImmediate) != modes.end())
-								return vk::PresentModeKHR::eImmediate;
-						}
-
-						// return Fifo that is always supported
-						return vk::PresentModeKHR::eFifo;
-					}(frameUpdateMode, physicalDevice, window),
+				vk::PresentModeKHR::eFifo,  // presentMode
 				VK_TRUE,  // clipped
 				swapchain  // oldSwapchain
 			)
@@ -558,153 +453,11 @@ void App::resize(VulkanWindow&, const vk::SurfaceCapabilitiesKHR& surfaceCapabil
 				)
 			)
 		);
-
-	// pipeline
-	pipeline =
-		device.createGraphicsPipeline(
-			nullptr,  // pipelineCache
-			vk::GraphicsPipelineCreateInfo(
-				vk::PipelineCreateFlags(),  // flags
-
-				// shader stages
-				2,  // stageCount
-				array{  // pStages
-					vk::PipelineShaderStageCreateInfo{
-						vk::PipelineShaderStageCreateFlags(),  // flags
-						vk::ShaderStageFlagBits::eVertex,  // stage
-						vsModule,  // module
-						"main",  // pName
-						nullptr  // pSpecializationInfo
-					},
-					vk::PipelineShaderStageCreateInfo{
-						vk::PipelineShaderStageCreateFlags(),  // flags
-						vk::ShaderStageFlagBits::eFragment,  // stage
-						fsModule,  // module
-						"main",  // pName
-						nullptr  // pSpecializationInfo
-					},
-				}.data(),
-
-				// vertex input
-				&(const vk::PipelineVertexInputStateCreateInfo&)vk::PipelineVertexInputStateCreateInfo{  // pVertexInputState
-					vk::PipelineVertexInputStateCreateFlags(),  // flags
-					0,        // vertexBindingDescriptionCount
-					nullptr,  // pVertexBindingDescriptions
-					0,        // vertexAttributeDescriptionCount
-					nullptr   // pVertexAttributeDescriptions
-				},
-
-				// input assembly
-				&(const vk::PipelineInputAssemblyStateCreateInfo&)vk::PipelineInputAssemblyStateCreateInfo{  // pInputAssemblyState
-					vk::PipelineInputAssemblyStateCreateFlags(),  // flags
-					vk::PrimitiveTopology::eTriangleStrip,  // topology
-					VK_FALSE  // primitiveRestartEnable
-				},
-
-				// tessellation
-				nullptr, // pTessellationState
-
-				// viewport
-				&(const vk::PipelineViewportStateCreateInfo&)vk::PipelineViewportStateCreateInfo{  // pViewportState
-					vk::PipelineViewportStateCreateFlags(),  // flags
-					1,  // viewportCount
-					array{  // pViewports
-						vk::Viewport(0.f, 0.f, float(newSurfaceExtent.width), float(newSurfaceExtent.height), 0.f, 1.f),
-					}.data(),
-					1,  // scissorCount
-					array{  // pScissors
-						vk::Rect2D(vk::Offset2D(0,0), newSurfaceExtent)
-					}.data(),
-				},
-
-				// rasterization
-				&(const vk::PipelineRasterizationStateCreateInfo&)vk::PipelineRasterizationStateCreateInfo{  // pRasterizationState
-					vk::PipelineRasterizationStateCreateFlags(),  // flags
-					VK_FALSE,  // depthClampEnable
-					VK_FALSE,  // rasterizerDiscardEnable
-					vk::PolygonMode::eFill,  // polygonMode
-					vk::CullModeFlagBits::eNone,  // cullMode
-					vk::FrontFace::eCounterClockwise,  // frontFace
-					VK_FALSE,  // depthBiasEnable
-					0.f,  // depthBiasConstantFactor
-					0.f,  // depthBiasClamp
-					0.f,  // depthBiasSlopeFactor
-					1.f   // lineWidth
-				},
-
-				// multisampling
-				&(const vk::PipelineMultisampleStateCreateInfo&)vk::PipelineMultisampleStateCreateInfo{  // pMultisampleState
-					vk::PipelineMultisampleStateCreateFlags(),  // flags
-					vk::SampleCountFlagBits::e1,  // rasterizationSamples
-					VK_FALSE,  // sampleShadingEnable
-					0.f,       // minSampleShading
-					nullptr,   // pSampleMask
-					VK_FALSE,  // alphaToCoverageEnable
-					VK_FALSE   // alphaToOneEnable
-				},
-
-				// depth and stencil
-				nullptr,  // pDepthStencilState
-
-				// blending
-				&(const vk::PipelineColorBlendStateCreateInfo&)vk::PipelineColorBlendStateCreateInfo{  // pColorBlendState
-					vk::PipelineColorBlendStateCreateFlags(),  // flags
-					VK_FALSE,  // logicOpEnable
-					vk::LogicOp::eClear,  // logicOp
-					1,  // attachmentCount
-					array{  // pAttachments
-						vk::PipelineColorBlendAttachmentState{
-							VK_FALSE,  // blendEnable
-							vk::BlendFactor::eZero,  // srcColorBlendFactor
-							vk::BlendFactor::eZero,  // dstColorBlendFactor
-							vk::BlendOp::eAdd,       // colorBlendOp
-							vk::BlendFactor::eZero,  // srcAlphaBlendFactor
-							vk::BlendFactor::eZero,  // dstAlphaBlendFactor
-							vk::BlendOp::eAdd,       // alphaBlendOp
-							vk::ColorComponentFlagBits::eR | vk::ColorComponentFlagBits::eG |
-								vk::ColorComponentFlagBits::eB | vk::ColorComponentFlagBits::eA  // colorWriteMask
-						},
-					}.data(),
-					array<float,4>{0.f,0.f,0.f,0.f}  // blendConstants
-				},
-
-				nullptr,  // pDynamicState
-				pipelineLayout,  // layout
-				renderPass,  // renderPass
-				0,  // subpass
-				vk::Pipeline(nullptr),  // basePipelineHandle
-				-1 // basePipelineIndex
-			)
-		).value;
-
-	// set view
-	if(valueGradient == -1.f) {
-		valueGradient = 4.f / newSurfaceExtent.height;
-		setView(float(newSurfaceExtent.width)/2, float(newSurfaceExtent.height)/2, 0.f, 0.f);
-	}
-	else {
-		valueGradient *= float(windowHeight) / newSurfaceExtent.height;
-		setView(float(newSurfaceExtent.width)/2, float(newSurfaceExtent.height)/2, (minX+maxX)/2, (minY+maxY)/2);
-	}
-	windowHeight = newSurfaceExtent.height;
-}
-
-
-void App::setView(float coordX, float coordY, float valueX, float valueY)
-{
-	vk::Extent2D windowSize = window.surfaceExtent();
-	minY = valueY - (coordY * valueGradient);
-	maxY = valueY + ((int(windowSize.height) - coordY) * valueGradient);
-	minX = valueX - (coordX * valueGradient);
-	maxX = valueX + ((int(windowSize.width) - coordX) * valueGradient);
-	cout << "New coords: " << minX << "," << minY << ", " << maxX << "," << maxY << endl;
 }
 
 
 void App::frame(VulkanWindow&)
 {
-	cout << "x" << flush;
-
 	// wait for previous frame rendering work
 	// if still not finished
 	vk::Result r =
@@ -719,23 +472,6 @@ void App::frame(VulkanWindow&)
 		throw runtime_error("Vulkan error: vkWaitForFences failed with error " + to_string(r) + ".");
 	}
 	device.resetFences(renderFinishedFence);
-
-	// increment frame counter
-	frameID++;
-
-	// measure FPS
-	fpsNumFrames++;
-	if(fpsNumFrames == 0)
-		fpsStartTime = chrono::high_resolution_clock::now();
-	else {
-		auto t = chrono::high_resolution_clock::now();
-		auto dt = t - fpsStartTime;
-		if(dt >= chrono::seconds(2)) {
-			cout << "FPS: " << fpsNumFrames/chrono::duration<double>(dt).count() << endl;
-			fpsNumFrames = 0;
-			fpsStartTime = t;
-		}
-	}
 
 	// acquire image
 	uint32_t imageIndex;
@@ -774,39 +510,10 @@ void App::frame(VulkanWindow&)
 			vk::Rect2D(vk::Offset2D(0, 0), window.surfaceExtent()),  // renderArea
 			1,  // clearValueCount
 			&(const vk::ClearValue&)vk::ClearValue(  // pClearValues
-				vk::ClearColorValue(array<float, 4>{0.0f, 0.0f, 0.0f, 1.f})
+				vk::ClearColorValue(array<float, 4>{0.0f, 0.5f, 1.0f, 1.f})
 			)
 		),
 		vk::SubpassContents::eInline
-	);
-
-	// push constants
-	struct PushData {
-		float juliaCoords[4];
-		int viewPlane;
-		int dummy;
-		float constantParameters[2];
-	};
-	commandBuffer.pushConstants(
-		pipelineLayout,  // layout
-		vk::ShaderStageFlagBits::eVertex | vk::ShaderStageFlagBits::eFragment,  // stageFlags
-		0,  // offset
-		32,  // size
-		&(const PushData&)PushData{  // pValues
-			minX, minY, maxX, maxY,
-			0,
-			0,
-			0.f, 0.f,
-		}
-	);
-
-	// rendering commands
-	commandBuffer.bindPipeline(vk::PipelineBindPoint::eGraphics, pipeline);  // bind pipeline
-	commandBuffer.draw(  // draw single triangle
-		4,  // vertexCount
-		1,  // instanceCount
-		0,  // firstVertex
-		uint32_t(frameID)  // firstInstance
 	);
 
 	// end render pass and command buffer
@@ -847,66 +554,6 @@ void App::frame(VulkanWindow&)
 		} else
 			throw runtime_error("Vulkan error: vkQueuePresentKHR() failed with error " + to_string(r) + ".");
 	}
-
-	// schedule next frame
-	if(frameUpdateMode != FrameUpdateMode::OnDemand)
-		window.scheduleFrame();
-}
-
-
-void App::mouseMove(VulkanWindow&, const VulkanWindow::MouseState& s)
-{
-#if 0
-	cout << "m(" << s.posX << "," << s.posY << ")" << flush;
-#endif
-
-	if(s.buttons.test(VulkanWindow::MouseButton::Left)) {
-		vk::Extent2D windowSize = window.surfaceExtent();
-		float rx = (s.posX-s.relX) / windowSize.width;
-		float ry = (s.posY-s.relY) / windowSize.height;
-		setView(s.posX, s.posY, minX*(1.f-rx) + maxX*rx, minY*(1.f-ry) + maxY*ry);
-		window.scheduleFrame();
-	}
-}
-
-
-void App::mouseButton(VulkanWindow&, size_t button, VulkanWindow::ButtonState buttonState, const VulkanWindow::MouseState& s)
-{
-	string d = (buttonState == VulkanWindow::ButtonState::Pressed) ? "D" : "U";
-	cout << "b" << button << d << "[" << hex << s.buttons.to_ulong() << dec << "]";
-	if(s.mods.test(VulkanWindow::Modifier::Ctrl))
-		cout << "Ctrl";
-	if(s.mods.test(VulkanWindow::Modifier::Shift))
-		cout << "Shift";
-	if(s.mods.test(VulkanWindow::Modifier::Alt))
-		cout << "Alt";
-	if(s.mods.test(VulkanWindow::Modifier::Meta))
-		cout << "Meta";
-	cout << endl;
-}
-
-
-void App::mouseWheel(VulkanWindow&, float wheelX, float wheelY, const VulkanWindow::MouseState& s)
-{
-	cout << "w(" << wheelX << "," << wheelY << ")" << flush;
-
-	vk::Extent2D windowSize = window.surfaceExtent();
-	float rx = s.posX / windowSize.width;
-	float ry = s.posY / windowSize.height;
-	valueGradient *= powf(0.9f, wheelY / 120);
-	setView(s.posX, s.posY, minX*(1.f-rx) + maxX*rx, minY*(1.f-ry) + maxY*ry);
-	window.scheduleFrame();
-}
-
-
-void App::key(VulkanWindow&, VulkanWindow::KeyState keyState, VulkanWindow::ScanCode scanCode)
-{
-	if(keyState == VulkanWindow::KeyState::Pressed)
-		cout << "KeyDown";
-	else
-		cout << "KeyUp";
-
-	cout << ", scanCode: " << uint16_t(scanCode) << endl;
 }
 
 
@@ -930,10 +577,6 @@ int main(int argc, char* argv[])
 		app.window.setFrameCallback(
 			bind(&App::frame, &app, placeholders::_1)
 		);
-		app.window.setMouseMoveCallback(bind(&App::mouseMove, &app, placeholders::_1, placeholders::_2));
-		app.window.setMouseButtonCallback(bind(&App::mouseButton, &app, placeholders::_1, placeholders::_2, placeholders::_3, placeholders::_4));
-		app.window.setMouseWheelCallback(bind(&App::mouseWheel, &app, placeholders::_1, placeholders::_2, placeholders::_3, placeholders::_4));
-		app.window.setKeyCallback(bind(&App::key, &app, placeholders::_1, placeholders::_2, placeholders::_3));
 		app.window.show();
 		app.window.mainLoop();
 
