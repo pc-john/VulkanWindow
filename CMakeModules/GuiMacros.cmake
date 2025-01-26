@@ -45,7 +45,7 @@ macro(GuiConfigure APP_SOURCES APP_INCLUDES libs defines vulkanWindowDefines inc
 
 		# configure for Xlib
 		find_package(X11 REQUIRED)
-		set(${libs} ${${libs}} X11)
+		set(${libs} ${${libs}} X11 xkbcommon)
 		set(${defines} ${${defines}} USE_PLATFORM_XLIB)
 		set(${vulkanWindowDefines} ${${vulkanWindowDefines}} VK_USE_PLATFORM_XLIB_KHR)
 

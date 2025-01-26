@@ -113,6 +113,13 @@ struct libdecor_frame_workaround {  // taken from libdecor-plugin.h to workaroun
 };
 #endif
 
+// xcbcommon types and funcs
+// (we avoid dependency on include xkbcommon/xkbcommon.h to lessen VulkanWindow dependencies)
+#if defined(USE_PLATFORM_XLIB)
+typedef uint32_t xkb_keysym_t;
+extern "C" uint32_t xkb_keysym_to_utf32(xkb_keysym_t keysym);
+#endif
+
 using namespace std;
 
 
@@ -2832,8 +2839,31 @@ void VulkanWindow::mainLoop()
 			// callback
 			if(w->_keyCallback)
 			{
+				// get scan code
 				ScanCode scanCode = ScanCode(e.xkey.keycode - 8);
-				w->_keyCallback(*w, KeyState::Pressed, scanCode);
+
+				// get utf32 character representing the keyboard key
+				uint32_t chUtf32;
+				if(scanCode >= ScanCode::One && scanCode <= ScanCode::Zero) {
+					if(scanCode == ScanCode::Zero)
+						chUtf32 = '0';
+					else
+						chUtf32 = uint32_t(scanCode) - uint32_t(ScanCode::One) + '1';
+				}
+				else {
+					KeySym keySym;
+					e.xkey.state &= ~(ShiftMask | LockMask | ControlMask |  // ignore shift state, Caps Lock and Ctrl
+					                  Mod1Mask |  // ignore Alt
+					                  Mod2Mask |  // ignore Num Lock
+					                  Mod3Mask |  // ignore Scroll Lock
+					                  Mod4Mask |  // ignore WinKey  );
+					                  Mod5Mask);  // ignore unknown modifier
+					XLookupString(&e.xkey, nullptr, 0, &keySym, nullptr);
+					chUtf32 = xkb_keysym_to_utf32(keySym);
+				}
+
+				// callback
+				w->_keyCallback(*w, KeyState::Pressed, scanCode, KeyCode(chUtf32));
 			}
 			continue;
 		}
@@ -2854,8 +2884,31 @@ void VulkanWindow::mainLoop()
 			// callback
 			if(w->_keyCallback)
 			{
+				// get scan code
 				ScanCode scanCode = ScanCode(e.xkey.keycode - 8);
-				w->_keyCallback(*w, KeyState::Released, scanCode);
+
+				// get utf32 character representing the keyboard key
+				uint32_t chUtf32;
+				if(scanCode >= ScanCode::One && scanCode <= ScanCode::Zero) {
+					if(scanCode == ScanCode::Zero)
+						chUtf32 = '0';
+					else
+						chUtf32 = uint32_t(scanCode) - uint32_t(ScanCode::One) + '1';
+				}
+				else {
+					KeySym keySym;
+					e.xkey.state &= ~(ShiftMask | LockMask | ControlMask |  // ignore shift state, Caps Lock and Ctrl
+					                  Mod1Mask |  // ignore Alt
+					                  Mod2Mask |  // ignore Num Lock
+					                  Mod3Mask |  // ignore Scroll Lock
+					                  Mod4Mask |  // ignore WinKey  );
+					                  Mod5Mask);  // ignore unknown modifier
+					XLookupString(&e.xkey, nullptr, 0, &keySym, nullptr);
+					chUtf32 = xkb_keysym_to_utf32(keySym);
+				}
+
+				// callback
+				w->_keyCallback(*w, KeyState::Released, scanCode, KeyCode(chUtf32));
 			}
 			continue;
 		}
@@ -3376,7 +3429,8 @@ void VulkanWindowPrivate::keyboardListenerKey(void* data, wl_keyboard* keyboard,
 		windowWithKbFocus->_keyCallback(
 			*windowWithKbFocus,
 			state==WL_KEYBOARD_KEY_STATE_PRESSED ? KeyState::Pressed : KeyState::Released,
-			ScanCode(scanCode)
+			ScanCode(scanCode),
+			KeyCode(0)
 		);
 	}
 }
