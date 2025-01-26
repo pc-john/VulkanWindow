@@ -2,12 +2,16 @@
 #include <vulkan/vulkan.hpp>
 #include <algorithm>
 #include <iostream>
+#ifdef _WIN32
+# define WIN32_LEAN_AND_MEAN  // reduce amount of included files by windows.h
+# include <windows.h>  // needed for SetConsoleOutputCP()
+#endif
 
 using namespace std;
 
 
 // constants
-constexpr const char* appName = "HelloWindow";
+constexpr const char* appName = "InputTest";
 
 
 // global application data
@@ -20,6 +24,10 @@ public:
 	void init();
 	void resize(VulkanWindow& window, const vk::SurfaceCapabilitiesKHR& surfaceCapabilities, vk::Extent2D newSurfaceExtent);
 	void frame(VulkanWindow& window);
+	void mouseMove(VulkanWindow& window, const VulkanWindow::MouseState& mouseState);
+	void mouseButton(VulkanWindow&, size_t button, VulkanWindow::ButtonState buttonState, const VulkanWindow::MouseState& mouseState);
+	void mouseWheel(VulkanWindow& window, float wheelX, float wheelY, const VulkanWindow::MouseState& mouseState);
+	void key(VulkanWindow& window, VulkanWindow::KeyState keyState, VulkanWindow::ScanCode scanCode, VulkanWindow::KeyCode key);
 
 	// Vulkan instance must be destructed as the last Vulkan handle.
 	// It is probably good idea to destroy it after the display connection.
@@ -555,8 +563,91 @@ void App::frame(VulkanWindow&)
 }
 
 
+static void printModifiers(const VulkanWindow::MouseState& s)
+{
+	cout << ", modifiers: ";
+	if(s.mods.none()) {
+		cout << "none";
+		return;
+	}
+
+	if(s.mods.test(VulkanWindow::Modifier::Ctrl)) {
+		cout << "Ctrl";
+		goto testForShift;
+	}
+	if(s.mods.test(VulkanWindow::Modifier::Shift)) {
+		cout << "Shift";
+		goto testForAlt;
+	}
+	if(s.mods.test(VulkanWindow::Modifier::Alt)) {
+		cout << "Alt";
+		goto testForMeta;
+	}
+	if(s.mods.test(VulkanWindow::Modifier::Meta))
+		cout << "Meta";
+	return;
+
+testForShift:
+	if(s.mods.test(VulkanWindow::Modifier::Shift))
+		cout << "+Shift";
+testForAlt:
+	if(s.mods.test(VulkanWindow::Modifier::Alt))
+		cout << "+Alt";
+testForMeta:
+	if(s.mods.test(VulkanWindow::Modifier::Meta))
+		cout << "+Meta";
+}
+
+
+void App::mouseMove(VulkanWindow&, const VulkanWindow::MouseState& s)
+{
+	cout << "mouseMove " << s.posX << "," << s.posY;
+	printModifiers(s);
+	cout << endl;
+}
+
+
+void App::mouseButton(VulkanWindow&, size_t button, VulkanWindow::ButtonState buttonState, const VulkanWindow::MouseState& s)
+{
+	string d = (buttonState == VulkanWindow::ButtonState::Pressed) ? "down, " : "up,   ";
+	cout << "mouseButton " << d << "button: " << button << ", buttonState: 0x" << hex << s.buttons.to_ulong() << dec;
+	printModifiers(s);
+	cout << endl;
+}
+
+
+void App::mouseWheel(VulkanWindow&, float wheelX, float wheelY, const VulkanWindow::MouseState& s)
+{
+	cout << "mouseWheel " << wheelX << "," << wheelY;
+	printModifiers(s);
+	cout << endl;
+}
+
+
+void App::key(VulkanWindow&, VulkanWindow::KeyState keyState, VulkanWindow::ScanCode scanCode, VulkanWindow::KeyCode key)
+{
+	if(keyState == VulkanWindow::KeyState::Pressed)
+		cout << "key down, ";
+	else
+		cout << "key up,   ";
+
+	cout << "scanCode: " << uint16_t(scanCode) << " (0x" << hex << uint16_t(scanCode) << dec;
+	cout << "), keyCode: " << uint16_t(key) << " (0x" << hex << uint16_t(key) << dec;
+	string s;
+	s.reserve(4);  // this shall allocate at least 4 chars and one null byte, e.g. at least 5 bytes
+	s.assign(VulkanWindow::toCharArray(key).data());
+	cout << "), character: " << s << endl;
+}
+
+
 int main(int argc, char* argv[])
 {
+	// set console code page to utf-8 to print non-ASCII characters correctly
+#ifdef _WIN32
+	if(!SetConsoleOutputCP(CP_UTF8))
+		cout << "Failed to set console code page to utf-8." << endl;
+#endif
+
 	// catch exceptions
 	// (vulkan.hpp functions throw if they fail)
 	try {
@@ -575,6 +666,10 @@ int main(int argc, char* argv[])
 		app.window.setFrameCallback(
 			bind(&App::frame, &app, placeholders::_1)
 		);
+		app.window.setMouseMoveCallback(bind(&App::mouseMove, &app, placeholders::_1, placeholders::_2));
+		app.window.setMouseButtonCallback(bind(&App::mouseButton, &app, placeholders::_1, placeholders::_2, placeholders::_3, placeholders::_4));
+		app.window.setMouseWheelCallback(bind(&App::mouseWheel, &app, placeholders::_1, placeholders::_2, placeholders::_3, placeholders::_4));
+		app.window.setKeyCallback(bind(&App::key, &app, placeholders::_1, placeholders::_2, placeholders::_3, placeholders::_4));
 		app.window.show();
 		app.window.mainLoop();
 

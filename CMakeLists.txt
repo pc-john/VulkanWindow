@@ -6,6 +6,7 @@ set(PROJECTS
 	examples/helloWindow
 	examples/mandelbrot
 	tests/multiWindowTests
+	tests/inputTest
 )
 
 set(CMAKE_MODULE_PATH "${CMAKE_SOURCE_DIR}/CMakeModules/;${CMAKE_MODULE_PATH}")

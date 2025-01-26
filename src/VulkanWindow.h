@@ -1,6 +1,7 @@
 #pragma once
 
 #include <vulkan/vulkan.h>
+#include <array>
 #include <bitset>
 #include <exception>
 #include <functional>
@@ -66,12 +67,29 @@ public:
 		MediaSelect = 171, BrowserHome = 172,
 		Search = 217,
 	};
+	enum class KeyCode : char32_t {
+		Unknown = 0,
+		A = 'a', B = 'b', C = 'c', D = 'd',
+		E = 'e', F = 'f', G = 'g', H = 'h',
+		I = 'i', J = 'j', K = 'k', L = 'l',
+		M = 'm', N = 'n', O = 'o', P = 'p',
+		Q = 'q', R = 'r', S = 's', T = 't',
+		U = 'u', V = 'v', W = 'w', X = 'x',
+		Y = 'y', Z = 'z',
+		Space = ' ', Backspace = 0x08,
+		Enter = '\n', Escape = 0x1b,
+		Tab = '\t',
+	};
+	static constexpr KeyCode fromUtf8(const char* s);
+	static constexpr KeyCode fromAscii(char ch);
+	static std::string toString(KeyCode keyCode);
+	static std::array<char, 5> toCharArray(KeyCode keyCode);
 
 	// input function prototypes
 	typedef void MouseMoveCallback(VulkanWindow& window, const MouseState& mouseState);
 	typedef void MouseButtonCallback(VulkanWindow& window, MouseButton::EnumType button, ButtonState buttonState, const MouseState& mouseState);
 	typedef void MouseWheelCallback(VulkanWindow& window, float wheelX, float wheelY, const MouseState& mouseState);
-	typedef void KeyCallback(VulkanWindow& window, KeyState newKeyState, ScanCode scanCode);
+	typedef void KeyCallback(VulkanWindow& window, KeyState newKeyState, ScanCode scanCode, KeyCode key);
 
 protected:
 
@@ -296,6 +314,7 @@ inline std::vector<const char*>& VulkanWindow::appendRequiredExtensions(std::vec
 inline uint32_t VulkanWindow::requiredExtensionCount()  { return uint32_t(_requiredInstanceExtensions.size()); }
 inline const char* const* VulkanWindow::requiredExtensionNames()  { return _requiredInstanceExtensions.data(); }
 #endif
+inline constexpr VulkanWindow::KeyCode VulkanWindow::fromAscii(char ch)  { return VulkanWindow::KeyCode(ch); }
 
 
 // nifty counter / Schwarz counter
