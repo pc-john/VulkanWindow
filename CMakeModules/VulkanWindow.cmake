@@ -1,4 +1,4 @@
-macro(GuiConfigure APP_SOURCES APP_INCLUDES libs defines vulkanWindowDefines includes)
+macro(VulkanWindowConfigure APP_SOURCES APP_INCLUDES libs defines vulkanWindowDefines includes)
 
 	# set GUI_TYPE if not already set or if set to "default" string
 	string(TOLOWER "${GUI_TYPE}" guiTypeLowerCased)

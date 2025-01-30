@@ -19,8 +19,8 @@ find_package(Vulkan REQUIRED)
 set(libs Vulkan::Vulkan)
 
 # GUI dependencies
-include(${CMAKE_SOURCE_DIR}/CMakeModules/GuiMacros.cmake)
-GuiConfigure(APP_SOURCES APP_INCLUDES libs defines vulkanWindowDefines includes)
+include(${CMAKE_SOURCE_DIR}/CMakeModules/VulkanWindow.cmake)
+VulkanWindowConfigure(APP_SOURCES APP_INCLUDES libs defines vulkanWindowDefines includes)
 
 # executable
 add_shaders("${APP_SHADERS}" APP_SHADER_DEPS)
