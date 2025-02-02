@@ -2055,6 +2055,10 @@ VkSurfaceKHR VulkanWindow::create(VkInstance instance, VkExtent2D surfaceExtent,
 			}
 			ButtonState buttonState = (action == GLFW_PRESS) ? ButtonState::Pressed : ButtonState::Released;
 			w->_mouseState.buttons.set(b, action == GLFW_PRESS);
+			w->_mouseState.modifiers.set(Modifier::Ctrl,  mods & GLFW_MOD_CONTROL);
+			w->_mouseState.modifiers.set(Modifier::Shift, mods & GLFW_MOD_SHIFT);
+			w->_mouseState.modifiers.set(Modifier::Alt,   mods & GLFW_MOD_ALT);
+			w->_mouseState.modifiers.set(Modifier::Meta,  mods & GLFW_MOD_SUPER);
 			if(w->_mouseButtonCallback)
 				w->_mouseButtonCallback(*w, b, buttonState, w->_mouseState);
 		}
@@ -2072,19 +2076,10 @@ VkSurfaceKHR VulkanWindow::create(VkInstance instance, VkExtent2D surfaceExtent,
 		[](GLFWwindow* window, int key, int nativeScanCode, int action, int mods) {
 			VulkanWindow* w = reinterpret_cast<VulkanWindow*>(glfwGetWindowUserPointer(window));
 			if(action != GLFW_REPEAT) {
-				if(key >= GLFW_KEY_LEFT_SHIFT && key <= GLFW_KEY_RIGHT_SUPER) {
-					bool down = (action == GLFW_PRESS);
-					switch(key) {
-					case GLFW_KEY_LEFT_SHIFT:    w->_mouseState.modifiers.set(Modifier::Shift, down); break;
-					case GLFW_KEY_LEFT_CONTROL:  w->_mouseState.modifiers.set(Modifier::Ctrl,  down); break;
-					case GLFW_KEY_LEFT_ALT:      w->_mouseState.modifiers.set(Modifier::Alt,   down); break;
-					case GLFW_KEY_LEFT_SUPER:    w->_mouseState.modifiers.set(Modifier::Meta,  down); break;
-					case GLFW_KEY_RIGHT_SHIFT:   w->_mouseState.modifiers.set(Modifier::Shift, down); break;
-					case GLFW_KEY_RIGHT_CONTROL: w->_mouseState.modifiers.set(Modifier::Ctrl,  down); break;
-					case GLFW_KEY_RIGHT_ALT:     w->_mouseState.modifiers.set(Modifier::Alt,   down); break;
-					case GLFW_KEY_RIGHT_SUPER:   w->_mouseState.modifiers.set(Modifier::Meta,  down); break;
-					}
-				}
+				w->_mouseState.modifiers.set(Modifier::Ctrl,  mods & GLFW_MOD_CONTROL);
+				w->_mouseState.modifiers.set(Modifier::Shift, mods & GLFW_MOD_SHIFT);
+				w->_mouseState.modifiers.set(Modifier::Alt,   mods & GLFW_MOD_ALT);
+				w->_mouseState.modifiers.set(Modifier::Meta,  mods & GLFW_MOD_SUPER);
 				if(w->_keyCallback) {
 # ifdef _WIN32
 					ScanCode scanCode = translateScanCode(nativeScanCode);
