@@ -566,35 +566,35 @@ void App::frame(VulkanWindow&)
 static void printModifiers(const VulkanWindow::MouseState& s)
 {
 	cout << ", modifiers: ";
-	if(s.mods.none()) {
+	if(s.modifiers.none()) {
 		cout << "none";
 		return;
 	}
 
-	if(s.mods.test(VulkanWindow::Modifier::Ctrl)) {
+	if(s.modifiers.test(VulkanWindow::Modifier::Ctrl)) {
 		cout << "Ctrl";
 		goto testForShift;
 	}
-	if(s.mods.test(VulkanWindow::Modifier::Shift)) {
+	if(s.modifiers.test(VulkanWindow::Modifier::Shift)) {
 		cout << "Shift";
 		goto testForAlt;
 	}
-	if(s.mods.test(VulkanWindow::Modifier::Alt)) {
+	if(s.modifiers.test(VulkanWindow::Modifier::Alt)) {
 		cout << "Alt";
 		goto testForMeta;
 	}
-	if(s.mods.test(VulkanWindow::Modifier::Meta))
+	if(s.modifiers.test(VulkanWindow::Modifier::Meta))
 		cout << "Meta";
 	return;
 
 testForShift:
-	if(s.mods.test(VulkanWindow::Modifier::Shift))
+	if(s.modifiers.test(VulkanWindow::Modifier::Shift))
 		cout << "+Shift";
 testForAlt:
-	if(s.mods.test(VulkanWindow::Modifier::Alt))
+	if(s.modifiers.test(VulkanWindow::Modifier::Alt))
 		cout << "+Alt";
 testForMeta:
-	if(s.mods.test(VulkanWindow::Modifier::Meta))
+	if(s.modifiers.test(VulkanWindow::Modifier::Meta))
 		cout << "+Meta";
 }
 

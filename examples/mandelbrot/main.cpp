@@ -874,13 +874,13 @@ void App::mouseButton(VulkanWindow&, size_t button, VulkanWindow::ButtonState bu
 {
 	string d = (buttonState == VulkanWindow::ButtonState::Pressed) ? "D" : "U";
 	cout << "b" << button << d << "[" << hex << s.buttons.to_ulong() << dec << "]";
-	if(s.mods.test(VulkanWindow::Modifier::Ctrl))
+	if(s.modifiers.test(VulkanWindow::Modifier::Ctrl))
 		cout << "Ctrl";
-	if(s.mods.test(VulkanWindow::Modifier::Shift))
+	if(s.modifiers.test(VulkanWindow::Modifier::Shift))
 		cout << "Shift";
-	if(s.mods.test(VulkanWindow::Modifier::Alt))
+	if(s.modifiers.test(VulkanWindow::Modifier::Alt))
 		cout << "Alt";
-	if(s.mods.test(VulkanWindow::Modifier::Meta))
+	if(s.modifiers.test(VulkanWindow::Modifier::Meta))
 		cout << "Meta";
 	cout << endl;
 }

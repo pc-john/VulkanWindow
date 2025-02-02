@@ -42,7 +42,7 @@ public:
 		float posX, posY;  // position of the mouse in window client area coordinates (relative to the upper-left corner)
 		float relX, relY;  // relative against the state of previous mouse callback
 		std::bitset<16> buttons;
-		std::bitset<16> mods;
+		std::bitset<16> modifiers;
 	};
 	enum class ScanCode : uint16_t {
 		Unknown = 0, Escape = 1,
@@ -152,6 +152,9 @@ protected:
 	static inline struct wl_seat* _seat = nullptr;
 	static inline struct wl_pointer* _pointer = nullptr;
 	static inline struct wl_keyboard* _keyboard = nullptr;
+	static inline struct xkb_context* _xkbContext = nullptr;
+	static inline struct xkb_state* _xkbState = nullptr;
+	static inline std::bitset<16> _modifiers;
 
 	static inline const std::vector<const char*> _requiredInstanceExtensions =
 		{ "VK_KHR_surface", "VK_KHR_wayland_surface" };

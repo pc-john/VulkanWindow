@@ -20,6 +20,8 @@
 # include <climits>
 # include <cstring>
 # include <dlfcn.h>
+# include <sys/mman.h>
+# include <unistd.h>
 # include <map>
 #elif defined(USE_PLATFORM_SDL3)
 # include <SDL3/SDL_error.h>
@@ -54,6 +56,47 @@
 #include <stdexcept>
 #include <string>
 #include <iostream>  // for debugging
+
+// xcbcommon types and funcs
+// (we avoid dependency on include xkbcommon/xkbcommon.h to lessen VulkanWindow dependencies)
+#if defined(USE_PLATFORM_XLIB)
+typedef uint32_t xkb_keysym_t;
+extern "C" uint32_t xkb_keysym_to_utf32(xkb_keysym_t keysym);
+#endif
+
+// xkb type and function definitions
+// (we avoid dependency on include xkbcommon/xkbcommon.h to lessen VulkanWindow dependencies;
+// instead we replace the include by the following enums and structs)
+#if defined(USE_PLATFORM_WAYLAND)
+enum xkb_context_flags {
+	XKB_CONTEXT_NO_FLAGS = 0,
+};
+enum xkb_keymap_format {
+	XKB_KEYMAP_FORMAT_TEXT_V1 = 1,
+};
+enum xkb_keymap_compile_flags {
+	XKB_KEYMAP_COMPILE_NO_FLAGS = 0,
+};
+enum xkb_state_component {};
+typedef uint32_t xkb_keycode_t;
+typedef uint32_t xkb_keysym_t;
+typedef uint32_t xkb_mod_mask_t;
+typedef uint32_t xkb_layout_index_t;
+extern "C" struct xkb_context* xkb_context_new(enum xkb_context_flags flags);
+extern "C" struct xkb_keymap* xkb_keymap_new_from_string(
+	struct xkb_context* context, const char* string,
+	enum xkb_keymap_format format, enum xkb_keymap_compile_flags flags);
+extern "C" void xkb_keymap_unref(struct xkb_keymap* keymap);
+extern "C" struct xkb_state* xkb_state_new(struct xkb_keymap* keymap);
+extern "C" void xkb_state_unref(struct xkb_state* state);
+extern "C" enum xkb_state_component xkb_state_update_mask(
+	struct xkb_state *state, xkb_mod_mask_t depressed_mods,
+	xkb_mod_mask_t latched_mods, xkb_mod_mask_t locked_mods,
+	xkb_layout_index_t depressed_layout, xkb_layout_index_t latched_layout,
+	xkb_layout_index_t locked_layout);
+extern "C" uint32_t xkb_state_key_get_utf32(struct xkb_state* state, xkb_keycode_t key);
+extern "C" void xkb_context_unref(struct xkb_context* context);
+#endif
 
 // libdecor enums and structs
 // (we avoid dependency on include libdecor-0/libdecor.h to lessen VulkanWindow dependencies;
@@ -111,13 +154,6 @@ struct libdecor_frame_workaround {  // taken from libdecor-plugin.h to workaroun
 	struct libdecor_frame_private* priv;
 	struct wl_list link;
 };
-#endif
-
-// xcbcommon types and funcs
-// (we avoid dependency on include xkbcommon/xkbcommon.h to lessen VulkanWindow dependencies)
-#if defined(USE_PLATFORM_XLIB)
-typedef uint32_t xkb_keysym_t;
-extern "C" uint32_t xkb_keysym_to_utf32(xkb_keysym_t keysym);
 #endif
 
 using namespace std;
@@ -882,6 +918,11 @@ void VulkanWindow::init(void* data)
 	if(wl_seat_add_listener(_seat, &seatListener, nullptr))
 		throw runtime_error("wl_seat_add_listener() failed.");
 
+	// xkb_context
+	_xkbContext = xkb_context_new(XKB_CONTEXT_NO_FLAGS);
+	if(_xkbContext == NULL)
+		throw runtime_error("VulkanWindow::init(): Cannot create XKB context.");
+
 	// libdecor
 	if(!_zxdgDecorationManagerV1) {
 
@@ -1082,6 +1123,14 @@ void VulkanWindow::finalize() noexcept
 	if(_seat) {
 		wl_seat_release(_seat);
 		_seat = nullptr;
+	}
+	if(_xkbState) {
+		xkb_state_unref(_xkbState);
+		_xkbState = nullptr;
+	}
+	if(_xkbContext) {
+		xkb_context_unref(_xkbContext);
+		_xkbContext = nullptr;
 	}
 	if(_xdgWmBase) {
 		xdg_wm_base_destroy(_xdgWmBase);
@@ -2026,14 +2075,14 @@ VkSurfaceKHR VulkanWindow::create(VkInstance instance, VkExtent2D surfaceExtent,
 				if(key >= GLFW_KEY_LEFT_SHIFT && key <= GLFW_KEY_RIGHT_SUPER) {
 					bool down = (action == GLFW_PRESS);
 					switch(key) {
-					case GLFW_KEY_LEFT_SHIFT:    w->_mouseState.mods.set(Modifier::Shift, down); break;
-					case GLFW_KEY_LEFT_CONTROL:  w->_mouseState.mods.set(Modifier::Ctrl,  down); break;
-					case GLFW_KEY_LEFT_ALT:      w->_mouseState.mods.set(Modifier::Alt,   down); break;
-					case GLFW_KEY_LEFT_SUPER:    w->_mouseState.mods.set(Modifier::Meta,  down); break;
-					case GLFW_KEY_RIGHT_SHIFT:   w->_mouseState.mods.set(Modifier::Shift, down); break;
-					case GLFW_KEY_RIGHT_CONTROL: w->_mouseState.mods.set(Modifier::Ctrl,  down); break;
-					case GLFW_KEY_RIGHT_ALT:     w->_mouseState.mods.set(Modifier::Alt,   down); break;
-					case GLFW_KEY_RIGHT_SUPER:   w->_mouseState.mods.set(Modifier::Meta,  down); break;
+					case GLFW_KEY_LEFT_SHIFT:    w->_mouseState.modifiers.set(Modifier::Shift, down); break;
+					case GLFW_KEY_LEFT_CONTROL:  w->_mouseState.modifiers.set(Modifier::Ctrl,  down); break;
+					case GLFW_KEY_LEFT_ALT:      w->_mouseState.modifiers.set(Modifier::Alt,   down); break;
+					case GLFW_KEY_LEFT_SUPER:    w->_mouseState.modifiers.set(Modifier::Meta,  down); break;
+					case GLFW_KEY_RIGHT_SHIFT:   w->_mouseState.modifiers.set(Modifier::Shift, down); break;
+					case GLFW_KEY_RIGHT_CONTROL: w->_mouseState.modifiers.set(Modifier::Ctrl,  down); break;
+					case GLFW_KEY_RIGHT_ALT:     w->_mouseState.modifiers.set(Modifier::Alt,   down); break;
+					case GLFW_KEY_RIGHT_SUPER:   w->_mouseState.modifiers.set(Modifier::Meta,  down); break;
 					}
 				}
 				if(w->_keyCallback) {
@@ -2265,10 +2314,10 @@ LRESULT VulkanWindowPrivate::wndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
 	auto handleModifiers =
 		[](VulkanWindowPrivate* w, WPARAM wParam) -> void
 		{
-			w->_mouseState.mods.set(Modifier::Ctrl,  wParam & MK_CONTROL);
-			w->_mouseState.mods.set(Modifier::Shift, wParam & MK_SHIFT);
-			w->_mouseState.mods.set(Modifier::Alt,   GetKeyState(VK_MENU) < 0);
-			w->_mouseState.mods.set(Modifier::Meta,  GetKeyState(VK_LWIN) < 0 || GetKeyState(VK_RWIN));
+			w->_mouseState.modifiers.set(Modifier::Ctrl,  wParam & MK_CONTROL);
+			w->_mouseState.modifiers.set(Modifier::Shift, wParam & MK_SHIFT);
+			w->_mouseState.modifiers.set(Modifier::Alt,   GetKeyState(VK_MENU) < 0);
+			w->_mouseState.modifiers.set(Modifier::Meta,  GetKeyState(VK_LWIN) < 0 || GetKeyState(VK_RWIN));
 		};
 	auto handleMouseMove =
 		[](VulkanWindowPrivate* w, float x, float y)
@@ -2287,11 +2336,11 @@ LRESULT VulkanWindowPrivate::wndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
 		{
 			VulkanWindowPrivate* w = reinterpret_cast<VulkanWindowPrivate*>(GetWindowLongPtr(hwnd, 0));
 
-			// handle mods
-			w->_mouseState.mods.set(Modifier::Ctrl,  wParam & MK_CONTROL);
-			w->_mouseState.mods.set(Modifier::Shift, wParam & MK_SHIFT);
-			w->_mouseState.mods.set(Modifier::Alt,   GetKeyState(VK_MENU) < 0);
-			w->_mouseState.mods.set(Modifier::Meta,  GetKeyState(VK_LWIN) < 0 || GetKeyState(VK_RWIN));
+			// handle modifiers
+			w->_mouseState.modifiers.set(Modifier::Ctrl,  wParam & MK_CONTROL);
+			w->_mouseState.modifiers.set(Modifier::Shift, wParam & MK_SHIFT);
+			w->_mouseState.modifiers.set(Modifier::Alt,   GetKeyState(VK_MENU) < 0);
+			w->_mouseState.modifiers.set(Modifier::Meta,  GetKeyState(VK_LWIN) < 0 || GetKeyState(VK_RWIN));
 
 			// handle mouse move, if any
 			float x = float(GET_X_LPARAM(lParam));
@@ -2721,10 +2770,10 @@ void VulkanWindow::mainLoop()
 	auto handleModifiers =
 		[](VulkanWindow* w, unsigned int state)
 		{
-			w->_mouseState.mods.set(VulkanWindow::Modifier::Ctrl,  state & ControlMask);
-			w->_mouseState.mods.set(VulkanWindow::Modifier::Shift, state & ShiftMask);
-			w->_mouseState.mods.set(VulkanWindow::Modifier::Alt,   state & (Mod1Mask|Mod5Mask));
-			w->_mouseState.mods.set(VulkanWindow::Modifier::Meta,  state & Mod4Mask);
+			w->_mouseState.modifiers.set(VulkanWindow::Modifier::Ctrl,  state & ControlMask);
+			w->_mouseState.modifiers.set(VulkanWindow::Modifier::Shift, state & ShiftMask);
+			w->_mouseState.modifiers.set(VulkanWindow::Modifier::Alt,   state & (Mod1Mask|Mod5Mask));
+			w->_mouseState.modifiers.set(VulkanWindow::Modifier::Meta,  state & Mod4Mask);
 		};
 	auto handleMouseMove =
 		[](VulkanWindow* w, float newX, float newY)
@@ -3350,8 +3399,10 @@ void VulkanWindowPrivate::pointerListenerMotion(void* data, wl_pointer* pointer,
 		windowUnderPointer->_mouseState.relY = y - windowUnderPointer->_mouseState.posY;
 		windowUnderPointer->_mouseState.posX = x;
 		windowUnderPointer->_mouseState.posY = y;
-		if(windowUnderPointer->_mouseMoveCallback)
+		if(windowUnderPointer->_mouseMoveCallback) {
+			windowUnderPointer->_mouseState.modifiers = _modifiers;
 			windowUnderPointer->_mouseMoveCallback(*windowUnderPointer, windowUnderPointer->_mouseState);
+		}
 	}
 }
 
@@ -3374,6 +3425,7 @@ void VulkanWindowPrivate::pointerListenerButton(void* data, wl_pointer* pointer,
 	}
 	windowUnderPointer->_mouseState.buttons.set(index, state == WL_POINTER_BUTTON_STATE_PRESSED);
 	if(windowUnderPointer->_mouseButtonCallback) {
+		windowUnderPointer->_mouseState.modifiers = _modifiers;
 		ButtonState buttonState =
 			(state == WL_POINTER_BUTTON_STATE_PRESSED) ? ButtonState::Pressed : ButtonState::Released;
 		windowUnderPointer->_mouseButtonCallback(
@@ -3398,14 +3450,51 @@ void VulkanWindowPrivate::pointerListenerAxis(void* data, wl_pointer* pointer, u
 		wheelX = v;
 		wheelY = 0;
 	}
-	if(windowUnderPointer->_mouseWheelCallback)
+	if(windowUnderPointer->_mouseWheelCallback) {
+		windowUnderPointer->_mouseState.modifiers = _modifiers;
 		windowUnderPointer->_mouseWheelCallback(*windowUnderPointer, wheelX, wheelY,
 		                                        windowUnderPointer->_mouseState);
+	}
 }
 
 
 void VulkanWindowPrivate::keyboardListenerKeymap(void* data, wl_keyboard* keyboard, uint32_t format, int32_t fd, uint32_t size)
 {
+	if(format != WL_KEYBOARD_KEYMAP_FORMAT_XKB_V1)
+		return;
+
+	// map memory
+	char* m = static_cast<char*>(mmap(nullptr, size, PROT_READ, MAP_PRIVATE, fd, 0));
+	if(m == MAP_FAILED)
+		throw runtime_error("VulkanWindow::init(): Failed to map memory in keymap event.");
+
+	// create keymap
+	struct xkb_keymap* keymap = xkb_keymap_new_from_string(_xkbContext,
+		m, XKB_KEYMAP_FORMAT_TEXT_V1, XKB_KEYMAP_COMPILE_NO_FLAGS);
+	int r1 = munmap(m, size);
+	int r2 = close(fd);
+
+	// handle errors
+	if(keymap == nullptr)
+		throw runtime_error("VulkanWindow::init(): Failed to create keymap in keymap event.");
+	if(r1 != 0) {
+		xkb_keymap_unref(keymap);
+		throw runtime_error("VulkanWindow::init(): Failed to unmap memory in keymap event.");
+	}
+	if(r2 != 0) {
+		xkb_keymap_unref(keymap);
+		throw runtime_error("VulkanWindow::init(): Failed to close file descriptor in keymap event.");
+	}
+
+	// unref old xkb_state
+	if(_xkbState)
+		xkb_state_unref(_xkbState);
+
+	// create new xkb_state
+	_xkbState = xkb_state_new(keymap);
+	xkb_keymap_unref(keymap);
+	if(_xkbState == nullptr)
+		throw runtime_error("VulkanWindow::create(): Cannot create XKB state object in keymap event.");
 }
 
 
@@ -3413,6 +3502,20 @@ void VulkanWindowPrivate::keyboardListenerEnter(void* data, wl_keyboard* keyboar
 {
 	windowWithKbFocus = static_cast<VulkanWindowPrivate*>(wl_surface_get_user_data(surface));
 	assert(windowWithKbFocus && "wl_surface userData does not contain pointer to VulkanWindow.");
+
+#if 0 // this seems not needed for our simple key down and key up callbacks
+	// iterate keys array;
+	// the keys array contains currently pressed keys
+	// (following for loop is equivalent to wl_array_for_each(key, keys) used in C)
+	uint32_t* p;
+	for(p = static_cast<uint32_t*>(keys->data);
+			reinterpret_cast<char*>(p) < static_cast<char*>(keys->data) + keys->size;
+			p++)
+	{
+		uint32_t scanCode = *p;
+		xkb_state_key_get_utf32(_xkbState, scanCode + 8);
+	}
+#endif
 }
 
 
@@ -3424,13 +3527,16 @@ void VulkanWindowPrivate::keyboardListenerLeave(void* data, wl_keyboard* keyboar
 
 void VulkanWindowPrivate::keyboardListenerKey(void* data, wl_keyboard* keyboard, uint32_t serial, uint32_t time, uint32_t scanCode, uint32_t state)
 {
+	// get code point
+	uint32_t codePoint = xkb_state_key_get_utf32(_xkbState, scanCode + 8);
+
 	// callback
 	if(windowWithKbFocus->_keyCallback) {
 		windowWithKbFocus->_keyCallback(
 			*windowWithKbFocus,
 			state==WL_KEYBOARD_KEY_STATE_PRESSED ? KeyState::Pressed : KeyState::Released,
 			ScanCode(scanCode),
-			KeyCode(0)
+			KeyCode(codePoint)
 		);
 	}
 }
@@ -3439,6 +3545,16 @@ void VulkanWindowPrivate::keyboardListenerKey(void* data, wl_keyboard* keyboard,
 void VulkanWindowPrivate::keyboardListenerModifiers(void* data, wl_keyboard* keyboard, uint32_t serial, uint32_t mods_depressed,
                                                     uint32_t mods_latched, uint32_t mods_locked, uint32_t group)
 {
+#if 0 // xkb_state_update_mask() disturbs keys that we pass to keyCallbacks
+      // because we do not want them to be affected by any key modifiers
+	xkb_state_update_mask(_xkbState, mods_depressed, mods_latched, mods_locked, 0, 0, group);
+#endif
+
+	// update modifiers global state
+	_modifiers.set(VulkanWindow::Modifier::Ctrl,  mods_depressed & 0x04);
+	_modifiers.set(VulkanWindow::Modifier::Shift, mods_depressed & 0x01);
+	_modifiers.set(VulkanWindow::Modifier::Alt,   mods_depressed & 0x88);
+	_modifiers.set(VulkanWindow::Modifier::Meta,  mods_depressed & 0x40);
 }
 
 
@@ -3512,10 +3628,10 @@ void VulkanWindow::mainLoop()
 		[](VulkanWindow* w) -> void
 		{
 			SDL_Keymod m = SDL_GetModState();
-			w->_mouseState.mods.set(VulkanWindow::Modifier::Ctrl,  m & (SDL_KMOD_LCTRL |SDL_KMOD_RCTRL));
-			w->_mouseState.mods.set(VulkanWindow::Modifier::Shift, m & (SDL_KMOD_LSHIFT|SDL_KMOD_RSHIFT));
-			w->_mouseState.mods.set(VulkanWindow::Modifier::Alt,   m & (SDL_KMOD_LALT  |SDL_KMOD_RALT));
-			w->_mouseState.mods.set(VulkanWindow::Modifier::Meta,  m & (SDL_KMOD_LGUI  |SDL_KMOD_RGUI));
+			w->_mouseState.modifiers.set(VulkanWindow::Modifier::Ctrl,  m & (SDL_KMOD_LCTRL |SDL_KMOD_RCTRL));
+			w->_mouseState.modifiers.set(VulkanWindow::Modifier::Shift, m & (SDL_KMOD_LSHIFT|SDL_KMOD_RSHIFT));
+			w->_mouseState.modifiers.set(VulkanWindow::Modifier::Alt,   m & (SDL_KMOD_LALT  |SDL_KMOD_RALT));
+			w->_mouseState.modifiers.set(VulkanWindow::Modifier::Meta,  m & (SDL_KMOD_LGUI  |SDL_KMOD_RGUI));
 		};
 	auto handleMouseMove =
 		[](VulkanWindow* w, float newX, float newY) -> void
@@ -3830,10 +3946,10 @@ void VulkanWindow::mainLoop()
 		[](VulkanWindow* w) -> void
 		{
 			SDL_Keymod m = SDL_GetModState();
-			w->_mouseState.mods.set(VulkanWindow::Modifier::Ctrl,  m & (KMOD_LCTRL|KMOD_RCTRL));
-			w->_mouseState.mods.set(VulkanWindow::Modifier::Shift, m & (KMOD_LSHIFT|KMOD_RSHIFT));
-			w->_mouseState.mods.set(VulkanWindow::Modifier::Alt,   m & (KMOD_LALT|KMOD_RALT));
-			w->_mouseState.mods.set(VulkanWindow::Modifier::Meta,  m & (KMOD_LGUI|KMOD_RGUI));
+			w->_mouseState.modifiers.set(VulkanWindow::Modifier::Ctrl,  m & (KMOD_LCTRL|KMOD_RCTRL));
+			w->_mouseState.modifiers.set(VulkanWindow::Modifier::Shift, m & (KMOD_LSHIFT|KMOD_RSHIFT));
+			w->_mouseState.modifiers.set(VulkanWindow::Modifier::Alt,   m & (KMOD_LALT|KMOD_RALT));
+			w->_mouseState.modifiers.set(VulkanWindow::Modifier::Meta,  m & (KMOD_LGUI|KMOD_RGUI));
 		};
 	auto handleMouseMove =
 		[](VulkanWindow* w, float newX, float newY) -> void
@@ -4319,10 +4435,10 @@ bool QtRenderingWindow::event(QEvent* event)
 			[](VulkanWindow* vulkanWindow, QInputEvent* e)
 			{
 				Qt::KeyboardModifiers m = e->modifiers();
-				vulkanWindow->_mouseState.mods.set(VulkanWindow::Modifier::Ctrl,  m & Qt::ControlModifier);
-				vulkanWindow->_mouseState.mods.set(VulkanWindow::Modifier::Shift, m & Qt::ShiftModifier);
-				vulkanWindow->_mouseState.mods.set(VulkanWindow::Modifier::Alt,   m & Qt::AltModifier);
-				vulkanWindow->_mouseState.mods.set(VulkanWindow::Modifier::Meta,  m & Qt::MetaModifier);
+				vulkanWindow->_mouseState.modifiers.set(VulkanWindow::Modifier::Ctrl,  m & Qt::ControlModifier);
+				vulkanWindow->_mouseState.modifiers.set(VulkanWindow::Modifier::Shift, m & Qt::ShiftModifier);
+				vulkanWindow->_mouseState.modifiers.set(VulkanWindow::Modifier::Alt,   m & Qt::AltModifier);
+				vulkanWindow->_mouseState.modifiers.set(VulkanWindow::Modifier::Meta,  m & Qt::MetaModifier);
 			};
 		auto handleMouseMove =
 			[](VulkanWindow* vulkanWindow, float newX, float newY)
