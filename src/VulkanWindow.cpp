@@ -4555,36 +4555,46 @@ bool QtRenderingWindow::event(QEvent* event)
 		// handle key events
 		case QEvent::Type::KeyPress: {
 			if(vulkanWindow->_keyCallback) {
-				QKeyEvent *k = static_cast<QKeyEvent*>(event);
-				if(!k->isAutoRepeat()) {
+				QKeyEvent *keyEvent = static_cast<QKeyEvent*>(event);
+				if(!keyEvent->isAutoRepeat()) {
 
 					// scan code
 				#ifdef _WIN32
-					VulkanWindow::ScanCode scanCode = translateScanCode(k->nativeScanCode());
+					VulkanWindow::ScanCode scanCode = translateScanCode(keyEvent->nativeScanCode());
 				#else
-					VulkanWindow::ScanCode scanCode = VulkanWindow::ScanCode(k->nativeScanCode() - 8);
+					VulkanWindow::ScanCode scanCode = VulkanWindow::ScanCode(keyEvent->nativeScanCode() - 8);
 				#endif
 
+					// convert to lower case
+					int k = keyEvent->key();
+					if(k >= Qt::Key_A && k <= Qt::Key_Z)
+						k += 32;
+
 					// callback
-					vulkanWindow->_keyCallback(*vulkanWindow, VulkanWindow::KeyState::Pressed, scanCode, VulkanWindow::KeyCode(k->key()));
+					vulkanWindow->_keyCallback(*vulkanWindow, VulkanWindow::KeyState::Pressed, scanCode, VulkanWindow::KeyCode(k));
 				}
 			}
 			return true;
 		}
 		case QEvent::Type::KeyRelease: {
 			if(vulkanWindow->_keyCallback) {
-				QKeyEvent *k = static_cast<QKeyEvent*>(event);
-				if(!k->isAutoRepeat()) {
+				QKeyEvent *keyEvent = static_cast<QKeyEvent*>(event);
+				if(!keyEvent->isAutoRepeat()) {
 
 					// scan code
 				#ifdef _WIN32
-					VulkanWindow::ScanCode scanCode = translateScanCode(k->nativeScanCode());
+					VulkanWindow::ScanCode scanCode = translateScanCode(keyEvent->nativeScanCode());
 				#else
-					VulkanWindow::ScanCode scanCode = VulkanWindow::ScanCode(k->nativeScanCode() - 8);
+					VulkanWindow::ScanCode scanCode = VulkanWindow::ScanCode(keyEvent->nativeScanCode() - 8);
 				#endif
 
+					// convert to lower case
+					int k = keyEvent->key();
+					if(k >= Qt::Key_A && k <= Qt::Key_Z)
+						k += 32;
+
 					// callback
-					vulkanWindow->_keyCallback(*vulkanWindow, VulkanWindow::KeyState::Released, scanCode, VulkanWindow::KeyCode(k->key()));
+					vulkanWindow->_keyCallback(*vulkanWindow, VulkanWindow::KeyState::Released, scanCode, VulkanWindow::KeyCode(k));
 				}
 			}
 			return true;
