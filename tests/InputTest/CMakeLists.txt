@@ -1,4 +1,4 @@
-set(APP_NAME inputTest)
+set(APP_NAME InputTest)
 
 project(${APP_NAME})
 

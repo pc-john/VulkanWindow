@@ -1,4 +1,4 @@
-set(APP_NAME mandelbrot)
+set(APP_NAME HelloWindow)
 
 project(${APP_NAME})
 
@@ -12,8 +12,6 @@ set(APP_INCLUDES
 )
 
 set(APP_SHADERS
-	shader.vert
-	shader.frag
 )
 
 # dependencies

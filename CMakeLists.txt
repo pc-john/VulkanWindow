@@ -3,10 +3,10 @@ cmake_minimum_required(VERSION 3.16.0)
 project(VulkanWindow)
 
 set(PROJECTS
-	examples/helloWindow
-	examples/mandelbrot
-	tests/multiWindowTests
-	tests/inputTest
+	examples/HelloWindow
+	examples/Mandelbrot
+	tests/MultiWindowTests
+	tests/InputTest
 )
 
 set(CMAKE_MODULE_PATH "${CMAKE_SOURCE_DIR}/CMakeModules/;${CMAKE_MODULE_PATH}")

@@ -1,4 +1,4 @@
-set(APP_NAME helloWindow)
+set(APP_NAME MultiWindowTests)
 
 project(${APP_NAME})
 
@@ -12,6 +12,8 @@ set(APP_INCLUDES
 )
 
 set(APP_SHADERS
+	shader.vert
+	shader.frag
 )
 
 # dependencies

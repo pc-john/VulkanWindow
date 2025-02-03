@@ -1,4 +1,4 @@
-set(APP_NAME multiWindowTests)
+set(APP_NAME Mandelbrot)
 
 project(${APP_NAME})
 
