@@ -2487,7 +2487,7 @@ LRESULT VulkanWindowPrivate::wndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
 			GetCursorPos(&point);
 			ScreenToClient(hwnd, &point);
 			PostMessage(hwnd, WM_MOUSEMOVE, 0, point.x | point.y<<16);
-			return DefWindowProc(hwnd, msg, wParam, lParam);
+			return DefWindowProcW(hwnd, msg, wParam, lParam);
 		}
 
 		// vertical and horizontal mouse wheel
@@ -2525,7 +2525,7 @@ LRESULT VulkanWindowPrivate::wndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
 
 			// handle Alt-F4
 			if((lParam & 0xff0000) == (LPARAM(62) << 16) && GetKeyState(VK_MENU) < 0)
-				return DefWindowProc(hwnd, msg, wParam, lParam);
+				return DefWindowProcW(hwnd, msg, wParam, lParam);
 
 			// callback
 			VulkanWindowPrivate* w = reinterpret_cast<VulkanWindowPrivate*>(GetWindowLongPtr(hwnd, 0));
@@ -2584,7 +2584,7 @@ LRESULT VulkanWindowPrivate::wndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
 
 		case WM_INPUTLANGCHANGE: {
 			initKeyConversionTable();
-			return DefWindowProc(hwnd, msg, wParam, lParam);
+			return DefWindowProcW(hwnd, msg, wParam, lParam);
 		}
 
 		// window resize message
@@ -2595,7 +2595,7 @@ LRESULT VulkanWindowPrivate::wndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
 				VulkanWindowPrivate* w = reinterpret_cast<VulkanWindowPrivate*>(GetWindowLongPtr(hwnd, 0));
 				w->scheduleResize();
 			}
-			return DefWindowProc(hwnd, msg, wParam, lParam);
+			return DefWindowProcW(hwnd, msg, wParam, lParam);
 		}
 
 		// window show and hide message
@@ -2624,7 +2624,7 @@ LRESULT VulkanWindowPrivate::wndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
 				}
 
 			}
-			return DefWindowProc(hwnd, msg, wParam, lParam);
+			return DefWindowProcW(hwnd, msg, wParam, lParam);
 		}
 
 		// close window message
@@ -2660,7 +2660,7 @@ LRESULT VulkanWindowPrivate::wndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
 
 		// all other messages are handled by standard DefWindowProc()
 		default:
-			return DefWindowProc(hwnd, msg, wParam, lParam);
+			return DefWindowProcW(hwnd, msg, wParam, lParam);
 	}
 }
 
