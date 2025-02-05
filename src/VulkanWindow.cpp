@@ -54,7 +54,6 @@
 #include <algorithm>
 #include <cassert>
 #include <stdexcept>
-#include <string>
 #include <iostream>  // for debugging
 
 // xcbcommon types and funcs
@@ -204,25 +203,22 @@ static vector<VulkanWindow*> framePendingWindows;
 static VulkanWindow::KeyCode keyConversionTable[128];
 
 // Win32 UTF-8 string to wstring conversion
-# if defined(_UNICODE)
-static wstring utf8toWString(const char* s)
+static wstring utf8toWString(const string& s)
 {
 	// get string lengths
-	if(s == nullptr)  return {};
-	int l1 = int(strlen(s));  // strlen() might return bigger length of s becase s is not normal string but multibyte string
+	int l1 = s.length();  // length() returns number of bytes of the string but number of characters might be lower because it is utf8 string
 	if(l1 == 0)  return {};
 	l1++;  // include null terminating character
-	int l2 = MultiByteToWideChar(CP_UTF8, 0, s, l1, NULL, 0);
+	int l2 = MultiByteToWideChar(CP_UTF8, 0, s.c_str(), l1, NULL, 0);
 	if(l2 == 0)
 		throw runtime_error("MultiByteToWideChar(): The function failed.");
 
 	// perform the conversion
 	wstring r(l2, '\0'); // resize the string and initialize it with zeros because we have no simple way to leave it unitialized
-	if(MultiByteToWideChar(CP_UTF8, 0, s, l1, r.data(), l2) == 0)
+	if(MultiByteToWideChar(CP_UTF8, 0, s.c_str(), l1, r.data(), l2) == 0)
 		throw runtime_error("MultiByteToWideChar(): The function failed.");
 	return r;
 }
-# endif
 
 // Win32 wchar_t (UTF-16LE) to Unicode character number (code point) conversion
 static VulkanWindow::KeyCode wchar16ToKeyCode(WCHAR wch16)
@@ -710,19 +706,19 @@ void VulkanWindow::init()
 	// register window class with the first window
 	_hInstance = GetModuleHandle(NULL);
 	_windowClass =
-		RegisterClassEx(
-			&(const WNDCLASSEX&)WNDCLASSEX{
-				sizeof(WNDCLASSEX),  // cbSize
-				0,                   // style
+		RegisterClassExW(
+			&(const WNDCLASSEXW&)WNDCLASSEXW{
+				sizeof(WNDCLASSEXW),  // cbSize
+				0,                    // style
 				VulkanWindowPrivate::wndProc,  // lpfnWndProc
-				0,                   // cbClsExtra
-				sizeof(LONG_PTR),    // cbWndExtra
+				0,                    // cbClsExtra
+				sizeof(LONG_PTR),     // cbWndExtra
 				HINSTANCE(_hInstance),  // hInstance
 				LoadIcon(NULL, IDI_APPLICATION),  // hIcon
 				LoadCursor(NULL, IDC_ARROW),  // hCursor
-				NULL,                // hbrBackground
-				NULL,                // lpszMenuName
-				_T("VulkanWindow"),  // lpszClassName
+				NULL,                 // hbrBackground
+				NULL,                 // lpszMenuName
+				L"VulkanWindow",      // lpszClassName
 				LoadIcon(NULL, IDI_APPLICATION)  // hIconSm
 			}
 		);
@@ -1077,9 +1073,9 @@ void VulkanWindow::finalize() noexcept
 	// so ignore the errors in release builds and assert in debug builds)
 	if(_windowClass) {
 # ifdef NDEBUG
-		UnregisterClass(MAKEINTATOM(_windowClass), HINSTANCE(_hInstance));
+		UnregisterClassW(LPWSTR(MAKEINTATOM(_windowClass)), HINSTANCE(_hInstance));
 # else
-		if(!UnregisterClass(MAKEINTATOM(_windowClass), HINSTANCE(_hInstance)))
+		if(!UnregisterClassW(LPWSTR(MAKEINTATOM(_windowClass)), HINSTANCE(_hInstance)))
 			assert(0 && "UnregisterClass(): The function failed.");
 # endif
 		_windowClass = 0;
@@ -1714,8 +1710,34 @@ VulkanWindow& VulkanWindow::operator=(VulkanWindow&& other) noexcept
 }
 
 
-VkSurfaceKHR VulkanWindow::create(VkInstance instance, VkExtent2D surfaceExtent, const char* title,
+VkSurfaceKHR VulkanWindow::create(VkInstance instance, VkExtent2D surfaceExtent, string&& title,
                                   PFN_vkGetInstanceProcAddr getInstanceProcAddr)
+{
+	// destroy any previous window data
+	// (this makes calling create() multiple times safe operation)
+	destroy();
+
+	_title = move(title);
+
+	return createInternal(instance, surfaceExtent, getInstanceProcAddr);
+}
+
+
+VkSurfaceKHR VulkanWindow::create(VkInstance instance, VkExtent2D surfaceExtent, const string& title,
+                                  PFN_vkGetInstanceProcAddr getInstanceProcAddr)
+{
+	// destroy any previous window data
+	// (this makes calling create() multiple times safe operation)
+	destroy();
+
+	_title = title;
+
+	return createInternal(instance, surfaceExtent, getInstanceProcAddr);
+}
+
+
+VkSurfaceKHR VulkanWindow::createInternal(VkInstance instance, VkExtent2D surfaceExtent,
+                                          PFN_vkGetInstanceProcAddr getInstanceProcAddr)
 {
 	// asserts for valid usage
 	assert(instance && "The parameter instance must not be null.");
@@ -1728,10 +1750,6 @@ VkSurfaceKHR VulkanWindow::create(VkInstance instance, VkExtent2D surfaceExtent,
 #elif defined(USE_PLATFORM_QT)
 	assert(qGuiApplication && "VulkanWindow class was not initialized. Call VulkanWindow::init() before VulkanWindow::create().");
 #endif
-
-	// destroy any previous window data
-	// (this makes calling init() multiple times safe operation)
-	destroy();
 
 	// set Vulkan instance
 	_instance = instance;
@@ -1757,14 +1775,10 @@ VkSurfaceKHR VulkanWindow::create(VkInstance instance, VkExtent2D surfaceExtent,
 
 	// create window
 	_hwnd =
-		CreateWindowEx(
+		CreateWindowExW(
 			WS_EX_CLIENTEDGE,  // dwExStyle
-			MAKEINTATOM(_windowClass),  // lpClassName
-		#if _UNICODE
-			utf8toWString(title).c_str(),  // lpWindowName
-		#else
-			title,  // lpWindowName
-		#endif
+			LPWSTR(MAKEINTATOM(_windowClass)),  // lpClassName
+			utf8toWString(_title).c_str(),  // lpWindowName
 			WS_OVERLAPPEDWINDOW,  // dwStyle
 			CW_USEDEFAULT, CW_USEDEFAULT,  // x,y
 			surfaceExtent.width, surfaceExtent.height,  // width, height
@@ -1901,7 +1915,7 @@ VkSurfaceKHR VulkanWindow::create(VkInstance instance, VkExtent2D surfaceExtent,
 
 	// create Vulkan window
 	_window = SDL_CreateWindow(
-		title,  // title
+		_title.c_str(),  // title
 		surfaceExtent.width, surfaceExtent.height,  // w,h
 		SDL_WINDOW_VULKAN | SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIDDEN  // flags
 	);
@@ -1931,7 +1945,7 @@ VkSurfaceKHR VulkanWindow::create(VkInstance instance, VkExtent2D surfaceExtent,
 
 	// create Vulkan window
 	_window = SDL_CreateWindow(
-		title,  // title
+		_title.c_str(),  // title
 		SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED,  // x,y
 		surfaceExtent.width, surfaceExtent.height,  // w,h
 		SDL_WINDOW_VULKAN | SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIDDEN  // flags
@@ -1963,7 +1977,7 @@ VkSurfaceKHR VulkanWindow::create(VkInstance instance, VkExtent2D surfaceExtent,
 		// glfwShowWindow(): "Wayland: Focusing a window requires user interaction"; seen on glfw 3.3.8 and Kubuntu 22.10,
 		// however we need the focus on show on Win32 to get proper window focus
 # endif
-	_window = glfwCreateWindow(surfaceExtent.width, surfaceExtent.height, title, nullptr, nullptr);
+	_window = glfwCreateWindow(surfaceExtent.width, surfaceExtent.height, _title.c_str(), nullptr, nullptr);
 	if(_window == nullptr)
 		throwError("glfwCreateWindow");
 
@@ -4645,6 +4659,60 @@ void VulkanWindow::scheduleFrame()
 	static_cast<QtRenderingWindow*>(_window)->scheduleFrameTimer();
 }
 
+
+#endif
+
+
+
+#if defined(USE_PLATFORM_WIN32)
+
+void VulkanWindow::updateTitle()
+{
+	wstring s = utf8toWString(_title.c_str());
+	if(!SetWindowTextW(HWND(_hwnd), s.c_str()))
+		throw runtime_error("VulkanWindow::updateTitle(): Failed to set window title.");
+}
+
+#elif defined(USE_PLATFORM_XLIB)
+
+void VulkanWindow::updateTitle()
+{
+}
+
+#elif defined(USE_PLATFORM_WAYLAND)
+
+void VulkanWindow::updateTitle()
+{
+}
+
+#elif defined(USE_PLATFORM_SDL3)
+
+void VulkanWindow::updateTitle()
+{
+	if(!SDL_SetWindowTitle(_window, _title.c_str()))
+		throw runtime_error("VulkanWindow::updateTitle(): Failed to set window title.");
+}
+
+#elif defined(USE_PLATFORM_SDL2)
+
+void VulkanWindow::updateTitle()
+{
+	SDL_SetWindowTitle(_window, _title.c_str());
+}
+
+#elif defined(USE_PLATFORM_GLFW)
+
+void VulkanWindow::updateTitle()
+{
+	glfwSetWindowTitle(_window, _title.c_str());
+}
+
+#elif defined(USE_PLATFORM_QT)
+
+void VulkanWindow::updateTitle()
+{
+	_window->setTitle(_title.c_str()); // this treats _title as utf8 string
+}
 
 #endif
 

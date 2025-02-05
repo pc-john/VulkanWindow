@@ -127,7 +127,7 @@ void App::init()
 
 	// create surface
 	vk::SurfaceKHR surface =
-		window.create(instance, {1024, 768}, appName);
+		window.create(instance, {1024, 768}, string(appName) + ' ');
 
 	// find compatible devices
 	vector<vk::PhysicalDevice> deviceList = instance.enumeratePhysicalDevices();
@@ -624,7 +624,7 @@ void App::mouseWheel(VulkanWindow&, float wheelX, float wheelY, const VulkanWind
 }
 
 
-void App::key(VulkanWindow&, VulkanWindow::KeyState keyState, VulkanWindow::ScanCode scanCode, VulkanWindow::KeyCode key)
+void App::key(VulkanWindow& w, VulkanWindow::KeyState keyState, VulkanWindow::ScanCode scanCode, VulkanWindow::KeyCode key)
 {
 	if(keyState == VulkanWindow::KeyState::Pressed)
 		cout << "key down, ";
@@ -637,6 +637,9 @@ void App::key(VulkanWindow&, VulkanWindow::KeyState keyState, VulkanWindow::Scan
 	s.reserve(4);  // this shall allocate at least 4 chars and one null byte, e.g. at least 5 bytes
 	s.assign(VulkanWindow::toCharArray(key).data());
 	cout << "), character: " << s << endl;
+
+	if(keyState == VulkanWindow::KeyState::Pressed)
+		w.setTitle(w.title() + s);
 }
 
 

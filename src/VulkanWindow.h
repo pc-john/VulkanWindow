@@ -5,6 +5,7 @@
 #include <bitset>
 #include <exception>
 #include <functional>
+#include <string>
 
 
 
@@ -135,7 +136,6 @@ protected:
 
 	// state
 	bool _forcedFrame;
-	std::string _title;
 
 	// globals
 	static inline struct wl_display* _display = nullptr;
@@ -195,6 +195,7 @@ protected:
 
 	VkExtent2D _surfaceExtent = {0,0};
 	bool _resizePending = true;
+	std::string _title;
 	std::function<ResizeCallback> _resizeCallback;
 	std::function<CloseCallback> _closeCallback;
 
@@ -203,6 +204,10 @@ protected:
 	std::function<MouseButtonCallback> _mouseButtonCallback;
 	std::function<MouseWheelCallback> _mouseWheelCallback;
 	std::function<KeyCallback> _keyCallback;
+
+	VkSurfaceKHR createInternal(VkInstance instance, VkExtent2D surfaceExtent,
+	                            PFN_vkGetInstanceProcAddr getInstanceProcAddr);
+	void updateTitle();
 
 public:
 
@@ -224,7 +229,9 @@ public:
 	VulkanWindow& operator=(const VulkanWindow&) = delete;
 
 	// general methods
-	VkSurfaceKHR create(VkInstance instance, VkExtent2D surfaceExtent, const char* title = "Vulkan window",
+	VkSurfaceKHR create(VkInstance instance, VkExtent2D surfaceExtent, std::string&& title = "Vulkan window",
+	                    PFN_vkGetInstanceProcAddr getInstanceProcAddr = ::vkGetInstanceProcAddr);
+	VkSurfaceKHR create(VkInstance instance, VkExtent2D surfaceExtent, const std::string& title = "Vulkan window",
 	                    PFN_vkGetInstanceProcAddr getInstanceProcAddr = ::vkGetInstanceProcAddr);
 	void setDevice(VkDevice device, VkPhysicalDevice physicalDevice);
 	void show();
@@ -261,6 +268,11 @@ public:
 	VkSurfaceKHR surface() const;
 	VkExtent2D surfaceExtent() const;
 	bool isVisible() const;
+	const std::string& title() const;
+
+	// setters
+	void setTitle(std::string&& s);
+	void setTitle(const std::string& s);
 
 	// schedule methods
 	void scheduleFrame();
@@ -310,6 +322,9 @@ inline bool VulkanWindow::isVisible() const  { return _visible; }
 #elif defined(USE_PLATFORM_WAYLAND)
 inline bool VulkanWindow::isVisible() const  { return _xdgSurface != nullptr || _libdecorFrame != nullptr; }
 #endif
+inline const std::string& VulkanWindow::title() const  { return _title; }
+inline void VulkanWindow::setTitle(std::string&& s)  { if(s==_title) return; _title=std::move(s); updateTitle(); }
+inline void VulkanWindow::setTitle(const std::string& s)  { if(s==_title) return; _title=s; updateTitle(); }
 inline void VulkanWindow::scheduleResize()  { _resizePending = true; scheduleFrame(); }
 #if defined(USE_PLATFORM_WIN32) || defined(USE_PLATFORM_XLIB) || defined(USE_PLATFORM_WAYLAND)
 inline const std::vector<const char*>& VulkanWindow::requiredExtensions()  { return _requiredInstanceExtensions; }
