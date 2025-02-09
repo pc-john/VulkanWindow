@@ -119,6 +119,8 @@ protected:
 	static inline struct _XDisplay* _display = nullptr;  // struct _XDisplay* is used instead of Display* type
 	static inline unsigned long _wmDeleteMessage;  // unsigned long is used for Atom type
 	static inline unsigned long _wmStateProperty;  // unsigned long is used for Atom type
+	static inline unsigned long _netWmName;  // unsigned long is used for Atom type
+	static inline unsigned long _utf8String;  // unsigned long is used for Atom type
 	static inline const std::vector<const char*> _requiredInstanceExtensions =
 		{ "VK_KHR_surface", "VK_KHR_xlib_surface" };
 
@@ -195,7 +197,6 @@ protected:
 
 	VkExtent2D _surfaceExtent = {0,0};
 	bool _resizePending = true;
-	std::string _title;
 	std::function<ResizeCallback> _resizeCallback;
 	std::function<CloseCallback> _closeCallback;
 
@@ -204,6 +205,8 @@ protected:
 	std::function<MouseButtonCallback> _mouseButtonCallback;
 	std::function<MouseWheelCallback> _mouseWheelCallback;
 	std::function<KeyCallback> _keyCallback;
+
+	std::string _title;
 
 	VkSurfaceKHR createInternal(VkInstance instance, VkExtent2D surfaceExtent,
 	                            PFN_vkGetInstanceProcAddr getInstanceProcAddr);

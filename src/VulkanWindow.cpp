@@ -744,6 +744,8 @@ void VulkanWindow::init()
 	// get atoms
 	_wmDeleteMessage = XInternAtom(_display, "WM_DELETE_WINDOW", False);
 	_wmStateProperty = XInternAtom(_display, "WM_STATE", False);
+	_netWmName  = XInternAtom(_display, "_NET_WM_NAME", False);
+	_utf8String = XInternAtom(_display, "UTF8_STRING", False);
 
 #elif defined(USE_PLATFORM_WAYLAND)
 
@@ -867,6 +869,8 @@ void VulkanWindow::init(void* data)
 	// get atoms
 	_wmDeleteMessage = XInternAtom(_display, "WM_DELETE_WINDOW", False);
 	_wmStateProperty = XInternAtom(_display, "WM_STATE", False);
+	_netWmName  = XInternAtom(_display, "_NET_WM_NAME", False);
+	_utf8String = XInternAtom(_display, "UTF8_STRING", False);
 
 #elif defined(USE_PLATFORM_WAYLAND)
 
@@ -1549,6 +1553,7 @@ VulkanWindow::VulkanWindow(VulkanWindow&& other) noexcept
 	_mouseButtonCallback = move(other._mouseButtonCallback);
 	_mouseWheelCallback = move(other._mouseWheelCallback);
 	_keyCallback = move(other._keyCallback);
+	_title = move(other._title);
 }
 
 
@@ -1705,6 +1710,7 @@ VulkanWindow& VulkanWindow::operator=(VulkanWindow&& other) noexcept
 	_mouseButtonCallback = move(other._mouseButtonCallback);
 	_mouseWheelCallback = move(other._mouseWheelCallback);
 	_keyCallback = move(other._keyCallback);
+	_title = move(other._title);
 
 	return *this;
 }
@@ -1841,8 +1847,18 @@ VkSurfaceKHR VulkanWindow::createInternal(VkInstance instance, VkExtent2D surfac
 		);
 	if(vulkanWindowMap.emplace(_window, this).second == false)
 		throw runtime_error("VulkanWindow: The window already exists.");
-	XSetStandardProperties(_display, _window, title, title, None, NULL, 0, NULL);
 	XSetWMProtocols(_display, _window, &_wmDeleteMessage, 1);
+	XSetStandardProperties(_display, _window, _title.c_str(), _title.c_str(), None, NULL, 0, NULL);
+	XChangeProperty(
+		_display,
+		_window,
+		_netWmName,  // property
+		_utf8String,  // type
+		8,  // format
+		PropModeReplace,  // mode
+		reinterpret_cast<const unsigned char*>(_title.c_str()),  // data
+		_title.size()  // nelements
+	);
 
 	// create surface
 	PFN_vkCreateXlibSurfaceKHR vulkanCreateXlibSurfaceKHR =
@@ -1871,7 +1887,6 @@ VkSurfaceKHR VulkanWindow::createInternal(VkInstance instance, VkExtent2D surfac
 
 	// init variables
 	_forcedFrame = false;
-	_title = title;
 
 	// create wl surface
 	_wlSurface = wl_compositor_create_surface(_compositor);
@@ -4685,12 +4700,29 @@ void VulkanWindow::updateTitle()
 
 void VulkanWindow::updateTitle()
 {
+	XStoreName(_display, _window, _title.c_str());
+	XChangeProperty(
+		_display,
+		_window,
+		_netWmName,  // property
+		_utf8String,  // type
+		8,  // format
+		PropModeReplace,  // mode
+		reinterpret_cast<const unsigned char*>(_title.c_str()),  // data
+		_title.size()  // nelements
+	);
 }
 
 #elif defined(USE_PLATFORM_WAYLAND)
 
 void VulkanWindow::updateTitle()
 {
+	// if libdecor is used, use libdecor_frame_set_title()
+	// otherwise set it using xdg_toplevel_set_title()
+	if(_libdecorFrame)
+		funcs.libdecor_frame_set_title(_libdecorFrame, _title.c_str());
+	if(_xdgTopLevel)
+		xdg_toplevel_set_title(_xdgTopLevel, _title.c_str());
 }
 
 #elif defined(USE_PLATFORM_SDL3)
