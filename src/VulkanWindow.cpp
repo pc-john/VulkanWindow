@@ -4580,9 +4580,13 @@ bool QtRenderingWindow::event(QEvent* event)
 				#endif
 
 					// convert to lower case
-					int k = keyEvent->key();
+					int32_t k = keyEvent->key();
 					if(k >= Qt::Key_A && k <= Qt::Key_Z)
 						k += 32;
+					else {
+						u32string s =  keyEvent->text().toStdU32String();
+						k = (s.empty()) ? 0 : int32_t(s.front());
+					}
 
 					// callback
 					vulkanWindow->_keyCallback(*vulkanWindow, VulkanWindow::KeyState::Pressed, scanCode, VulkanWindow::KeyCode(k));
@@ -4603,9 +4607,13 @@ bool QtRenderingWindow::event(QEvent* event)
 				#endif
 
 					// convert to lower case
-					int k = keyEvent->key();
+					int32_t k = keyEvent->key();
 					if(k >= Qt::Key_A && k <= Qt::Key_Z)
 						k += 32;
+					else {
+						u32string s =  keyEvent->text().toStdU32String();
+						k = (s.empty()) ? 0 : int32_t(s.front());
+					}
 
 					// callback
 					vulkanWindow->_keyCallback(*vulkanWindow, VulkanWindow::KeyState::Released, scanCode, VulkanWindow::KeyCode(k));
