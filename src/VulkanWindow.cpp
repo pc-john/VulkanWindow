@@ -1983,6 +1983,8 @@ VkSurfaceKHR VulkanWindow::createInternal(VkInstance instance, VkExtent2D surfac
 	_framePendingState = FramePendingState::NotPending;
 	_visible = true;
 	_minimized = false;
+	_savedWidth = surfaceExtent.width;
+	_savedHeight = surfaceExtent.height;
 
 	// create window
 	glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
@@ -2119,6 +2121,26 @@ VkSurfaceKHR VulkanWindow::createInternal(VkInstance instance, VkExtent2D surfac
 						key += 32;
 					w->_keyCallback(*w, (action == GLFW_PRESS) ? KeyState::Pressed : KeyState::Released, scanCode, KeyCode(key));
 				}
+			}
+		}
+	);
+	glfwSetWindowPosCallback(
+		_window,
+		[](GLFWwindow* window, int posX, int posY) {
+			VulkanWindow* w = reinterpret_cast<VulkanWindow*>(glfwGetWindowUserPointer(window));
+			if(w->canUpdateSavedGeometry()) {
+				w->_savedPosX = posX;
+				w->_savedPosY = posY;
+			}
+		}
+	);
+	glfwSetWindowSizeCallback(
+		_window,
+		[](GLFWwindow* window, int width, int height) {
+			VulkanWindow* w = reinterpret_cast<VulkanWindow*>(glfwGetWindowUserPointer(window));
+			if(w->canUpdateSavedGeometry()) {
+				w->_savedWidth = width;
+				w->_savedHeight = height;
 			}
 		}
 	);
@@ -4752,6 +4774,235 @@ void VulkanWindow::updateTitle()
 void VulkanWindow::updateTitle()
 {
 	_window->setTitle(_title.c_str()); // this treats _title as utf8 string
+}
+
+#endif
+
+
+
+#if defined(USE_PLATFORM_WIN32)
+
+VulkanWindow::WindowState VulkanWindow::windowState() const
+{
+	WINDOWPLACEMENT wp;
+	wp.length = sizeof(WINDOWPLACEMENT);
+	if(!GetWindowPlacement(HWND(_hwnd), &wp))
+		throw runtime_error("VulkanWindow::windowState(): The function GetWindowPlacement() failed.");
+
+	switch(wp.showCmd) {
+	case SW_HIDE:             return WindowState::Hidden;
+	case SW_MINIMIZE:
+	case SW_SHOWMINIMIZED:
+	case SW_SHOWMINNOACTIVE:
+	case SW_FORCEMINIMIZE:    return WindowState::Minimized;
+	case SW_SHOW:
+	case SW_SHOWNORMAL:
+	case SW_SHOWNA:
+	case SW_SHOWNOACTIVATE:
+	case SW_SHOWDEFAULT:
+	case SW_RESTORE:          return WindowState::Normal;
+	case SW_SHOWMAXIMIZED:    return WindowState::Maximized;
+	default:                  return WindowState::Normal;  // unknown value => exception might be thrown here;
+	                                                       // let's rather consider it some new Windows value and try as less harm as possible
+	}
+}
+
+void VulkanWindow::setWindowState(WindowState windowState)
+{
+	switch(windowState) {
+	case WindowState::Hidden:     hide(); break;
+	case WindowState::Minimized:  ShowWindow(HWND(_hwnd), SW_SHOWMINIMIZED); break;
+	case WindowState::Normal:     ShowWindow(HWND(_hwnd), SW_SHOWNORMAL); break;
+	case WindowState::Maximized:  ShowWindow(HWND(_hwnd), SW_SHOWMAXIMIZED); break;
+	case WindowState::FullScreen: break;
+	}
+}
+
+#elif defined(USE_PLATFORM_XLIB)
+
+VulkanWindow::WindowState VulkanWindow::windowState() const
+{
+	return WindowState::Normal;
+}
+
+void VulkanWindow::setWindowState(WindowState windowState)
+{
+}
+
+#elif defined(USE_PLATFORM_WAYLAND)
+
+VulkanWindow::WindowState VulkanWindow::windowState() const
+{
+	return WindowState::Normal;
+}
+
+void VulkanWindow::setWindowState(WindowState windowState)
+{
+}
+
+#elif defined(USE_PLATFORM_SDL3)
+
+VulkanWindow::WindowState VulkanWindow::windowState() const
+{
+	SDL_WindowFlags f = SDL_GetWindowFlags(_window);
+	if(f & SDL_WINDOW_HIDDEN)
+		return WindowState::Hidden;
+	if(f & SDL_WINDOW_MINIMIZED)
+		return WindowState::Minimized;
+	if(f & SDL_WINDOW_FULLSCREEN)
+		return WindowState::FullScreen;
+	if(f & SDL_WINDOW_MAXIMIZED)
+		return WindowState::Maximized;
+	else
+		return WindowState::Normal;
+}
+
+void VulkanWindow::setWindowState(WindowState windowState)
+{
+	// leave fullscreen mode if needed
+	SDL_WindowFlags f = SDL_GetWindowFlags(_window);
+	if(f & SDL_WINDOW_FULLSCREEN) {
+		if(windowState == WindowState::FullScreen)
+			return;
+		else
+			SDL_SetWindowFullscreen(_window, false);
+	}
+
+	// change window state
+	switch(windowState) {
+	case WindowState::Hidden:     hide(); break;
+	case WindowState::Minimized:  if(!SDL_MinimizeWindow(_window)) throw runtime_error("VulkanWindow::setWindowState(): Failed to minimize window."); break;
+	case WindowState::Normal:     if(!SDL_RestoreWindow(_window))  throw runtime_error("VulkanWindow::setWindowState(): Failed to restore window."); break;
+	case WindowState::Maximized:  if(!SDL_MaximizeWindow(_window)) throw runtime_error("VulkanWindow::setWindowState(): Failed to maximize window."); break;
+	case WindowState::FullScreen: if(!SDL_SetWindowFullscreen(_window, true)) throw runtime_error("VulkanWindow::setWindowState(): Failed to make window fullscreen."); break;
+	default: throw runtime_error("VulkanWindow::setWindowState(): Invalid WindowState value passed as parameter.");
+	}
+}
+
+#elif defined(USE_PLATFORM_SDL2)
+
+VulkanWindow::WindowState VulkanWindow::windowState() const
+{
+	Uint32 f = SDL_GetWindowFlags(_window);
+	if(f & SDL_WINDOW_HIDDEN)
+		return WindowState::Hidden;
+	if(f & SDL_WINDOW_MINIMIZED)
+		return WindowState::Minimized;
+	if(f & SDL_WINDOW_FULLSCREEN)
+		return WindowState::FullScreen;
+	if(f & SDL_WINDOW_MAXIMIZED)
+		return WindowState::Maximized;
+	else
+		return WindowState::Normal;
+}
+
+void VulkanWindow::setWindowState(WindowState windowState)
+{
+	// leave fullscreen mode if needed
+	Uint32 f = SDL_GetWindowFlags(_window);
+	if(f & SDL_WINDOW_FULLSCREEN) {
+		if(windowState == WindowState::FullScreen)
+			return;
+		else
+			SDL_SetWindowFullscreen(_window, 0);  // leave full screen mode
+	}
+
+	// change window state
+	switch(windowState) {
+	case WindowState::Hidden:     hide(); break;
+	case WindowState::Minimized:  SDL_MinimizeWindow(_window); break;
+	case WindowState::Normal:     SDL_RestoreWindow(_window); break;
+	case WindowState::Maximized:  SDL_MaximizeWindow(_window); break;
+	case WindowState::FullScreen: if(SDL_SetWindowFullscreen(_window, SDL_WINDOW_FULLSCREEN_DESKTOP) != 0) throw runtime_error("VulkanWindow::setWindowState(): Failed to make window fullscreen."); break;
+	default: throw runtime_error("VulkanWindow::setWindowState(): Invalid WindowState value passed as parameter.");
+	}
+}
+
+#elif defined(USE_PLATFORM_GLFW)
+
+VulkanWindow::WindowState VulkanWindow::windowState() const
+{
+	if(!glfwGetWindowAttrib(_window, GLFW_VISIBLE))
+		return WindowState::Hidden;
+	if(glfwGetWindowAttrib(_window, GLFW_ICONIFIED))
+		return WindowState::Minimized;
+	if(glfwGetWindowMonitor(_window) != nullptr)
+		return WindowState::FullScreen;
+	if(glfwGetWindowAttrib(_window, GLFW_MAXIMIZED))
+		return WindowState::Maximized;
+	else
+		return WindowState::Normal;
+}
+
+void VulkanWindow::setWindowState(WindowState windowState)
+{
+	// leave fullscreen mode if needed
+	if(glfwGetWindowMonitor(_window) != nullptr) {
+		if(windowState == WindowState::FullScreen)
+			return;
+		else {
+			if(windowState == WindowState::Hidden || windowState == WindowState::Normal ||
+			   windowState == WindowState::Maximized)
+				glfwSetWindowMonitor(_window, nullptr, _savedPosX, _savedPosY, _savedWidth, _savedHeight, 0);
+			if(windowState == WindowState::Maximized)
+				glfwRestoreWindow(_window);
+		}
+	}
+
+	// change window state
+	switch(windowState) {
+	case WindowState::Hidden:     hide(); break;
+	case WindowState::Minimized:  glfwIconifyWindow(_window); break;
+	case WindowState::Normal:     glfwRestoreWindow(_window); break;
+	case WindowState::Maximized:  glfwMaximizeWindow(_window); break;
+	case WindowState::FullScreen: {
+			GLFWmonitor* m = glfwGetPrimaryMonitor();
+			const GLFWvidmode* mode = glfwGetVideoMode(m);
+			glfwSetWindowMonitor(_window, m, 0, 0, mode->width, mode->height, mode->refreshRate);
+			break;
+		}
+	default: throw runtime_error("VulkanWindow::setWindowState(): Invalid WindowState value passed as parameter.");
+	}
+}
+
+bool VulkanWindow::canUpdateSavedGeometry() const
+{
+	if(glfwGetWindowAttrib(_window, GLFW_MAXIMIZED))
+		return false;
+	if(glfwGetWindowAttrib(_window, GLFW_ICONIFIED))
+		return false;
+	if(!glfwGetWindowAttrib(_window, GLFW_VISIBLE))
+		return false;
+	if(glfwGetWindowMonitor(_window) != nullptr)
+		return false;
+	return true;
+}
+
+#elif defined(USE_PLATFORM_QT)
+
+VulkanWindow::WindowState VulkanWindow::windowState() const
+{
+	if(!_window->isVisible())
+		return WindowState::Hidden;
+	switch(_window->windowState()) {
+	case Qt::WindowMinimized:   return WindowState::Minimized;
+	case Qt::WindowNoState:     return WindowState::Normal;
+	case Qt::WindowMaximized:   return WindowState::Maximized;
+	case Qt::WindowFullScreen:  return WindowState::FullScreen;
+	default: throw runtime_error("VulkanWindow::windowState(): Unknown WindowState value.");
+	}
+}
+
+void VulkanWindow::setWindowState(WindowState windowState)
+{
+	switch(windowState) {
+	case WindowState::Hidden:     hide(); break;
+	case WindowState::Minimized:  _window->showMinimized(); break;
+	case WindowState::Normal:     _window->showNormal(); break;
+	case WindowState::Maximized:  _window->showMaximized(); break;
+	case WindowState::FullScreen: _window->showFullScreen(); break;
+	default: throw runtime_error("VulkanWindow::setWindowState(): Invalid WindowState value passed as parameter.");
+	}
 }
 
 #endif

@@ -18,6 +18,9 @@ public:
 		const VkSurfaceCapabilitiesKHR& surfaceCapabilities, VkExtent2D newSurfaceExtent);
 	typedef void CloseCallback(VulkanWindow& window);
 
+	// window state
+	enum class WindowState { Hidden, Minimized, Normal, Maximized, FullScreen };
+
 	// input structures and enums
 	struct MouseButton {
 		enum EnumType {
@@ -176,6 +179,12 @@ protected:
 	FramePendingState _framePendingState;
 	bool _visible;
 	bool _minimized;
+	int _savedPosX = 0;
+	int _savedPosY = 0;
+	int _savedWidth;
+	int _savedHeight;
+
+	bool canUpdateSavedGeometry() const;
 
 #elif defined(USE_PLATFORM_QT)
 
@@ -272,10 +281,18 @@ public:
 	VkExtent2D surfaceExtent() const;
 	bool isVisible() const;
 	const std::string& title() const;
+	WindowState windowState() const;
 
 	// setters
 	void setTitle(std::string&& s);
 	void setTitle(const std::string& s);
+	void setWindowState(WindowState windowState);
+
+	// setWindowState() convenience functions
+	void showFullScreen();
+	void showMaximized();
+	void showNormal();
+	void showMinimized();
 
 	// schedule methods
 	void scheduleFrame();
@@ -328,6 +345,10 @@ inline bool VulkanWindow::isVisible() const  { return _xdgSurface != nullptr || 
 inline const std::string& VulkanWindow::title() const  { return _title; }
 inline void VulkanWindow::setTitle(std::string&& s)  { if(s==_title) return; _title=std::move(s); updateTitle(); }
 inline void VulkanWindow::setTitle(const std::string& s)  { if(s==_title) return; _title=s; updateTitle(); }
+inline void VulkanWindow::showFullScreen()  { setWindowState(WindowState::FullScreen); }
+inline void VulkanWindow::showMaximized()  { setWindowState(WindowState::Maximized); }
+inline void VulkanWindow::showNormal()  { setWindowState(WindowState::Normal); }
+inline void VulkanWindow::showMinimized()  { setWindowState(WindowState::Minimized); }
 inline void VulkanWindow::scheduleResize()  { _resizePending = true; scheduleFrame(); }
 #if defined(USE_PLATFORM_WIN32) || defined(USE_PLATFORM_XLIB) || defined(USE_PLATFORM_WAYLAND)
 inline const std::vector<const char*>& VulkanWindow::requiredExtensions()  { return _requiredInstanceExtensions; }
