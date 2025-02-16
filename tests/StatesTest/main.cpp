@@ -1,5 +1,6 @@
 #include "VulkanWindow.h"
 #include <vulkan/vulkan.hpp>
+#include <algorithm>
 #include <iostream>
 #include <vector>
 
@@ -10,12 +11,23 @@ using namespace std;
 constexpr const char* appName = "StatesTest";
 
 
+// shader code in SPIR-V binary
+static const uint32_t vsSpirv[] = {
+#include "shader.vert.spv"
+};
+static const uint32_t fsSpirv[] = {
+#include "shader.frag.spv"
+};
+
+
 // Window class
 class Window : public VulkanWindow {
 public:
 	vk::SwapchainKHR swapchain;
 	vector<vk::ImageView> swapchainImageViews;
 	vector<vk::Framebuffer> framebuffers;
+	vk::Pipeline pipeline;
+	size_t frameID = ~size_t(0);
 
 	Window(vk::Instance instance, vk::Extent2D surfaceExtent, const string& title = "Vulkan window")
 		: VulkanWindow()  { VulkanWindow::create(instance, surfaceExtent, title); }
@@ -23,14 +35,16 @@ public:
 		swapchain = other.swapchain; other.swapchain = nullptr;
 		swapchainImageViews = move(other.swapchainImageViews);
 		framebuffers = move(other.framebuffers);
+		pipeline = other.pipeline; other.pipeline = nullptr;
 	}
 	~Window()  { destroyMembers(); }
-	Window& operator=(Window&& other) noexcept {
+	Window& operator=(Window&& rhs) noexcept {
 		destroyMembers();
-		VulkanWindow::operator=(move(other));
-		swapchain = other.swapchain; other.swapchain = nullptr;
-		swapchainImageViews = move(other.swapchainImageViews);
-		framebuffers = move(other.framebuffers);
+		VulkanWindow::operator=(move(rhs));
+		swapchain = rhs.swapchain; rhs.swapchain = nullptr;
+		swapchainImageViews = move(rhs.swapchainImageViews);
+		framebuffers = move(rhs.framebuffers);
+		pipeline = rhs.pipeline; rhs.pipeline = nullptr;
 		return *this;
 	}
 protected:
@@ -58,6 +72,8 @@ void Window::destroyMembers() noexcept
 	swapchainImageViews.clear();
 	device.destroy(swapchain);
 	swapchain = nullptr;
+	device.destroy(pipeline);
+	pipeline = nullptr;
 }
 
 
@@ -97,6 +113,9 @@ public:
 	vk::Semaphore imageAvailableSemaphore;
 	vk::Semaphore renderFinishedSemaphore;
 	vk::Fence renderFinishedFence;
+	vk::ShaderModule vsModule;
+	vk::ShaderModule fsModule;
+	vk::PipelineLayout pipelineLayout;
 
 };
 
@@ -125,6 +144,9 @@ App::~App()
 	// destroy handles
 	// (the handles are destructed in certain (not arbitrary) order)
 	if(device) {
+		device.destroy(vsModule);
+		device.destroy(fsModule);
+		device.destroy(pipelineLayout);
 		device.destroy(renderFinishedFence);
 		device.destroy(renderFinishedSemaphore);
 		device.destroy(imageAvailableSemaphore);
@@ -426,6 +448,36 @@ void App::init()
 				vk::FenceCreateFlagBits::eSignaled  // flags
 			)
 		);
+
+	// create shader modules
+	vsModule =
+		device.createShaderModule(
+			vk::ShaderModuleCreateInfo(
+				vk::ShaderModuleCreateFlags(),  // flags
+				sizeof(vsSpirv),  // codeSize
+				vsSpirv  // pCode
+			)
+		);
+	fsModule =
+		device.createShaderModule(
+			vk::ShaderModuleCreateInfo(
+				vk::ShaderModuleCreateFlags(),  // flags
+				sizeof(fsSpirv),  // codeSize
+				fsSpirv  // pCode
+			)
+		);
+
+	// pipeline layout
+	pipelineLayout =
+		device.createPipelineLayout(
+			vk::PipelineLayoutCreateInfo{
+				vk::PipelineLayoutCreateFlags(),  // flags
+				0,       // setLayoutCount
+				nullptr, // pSetLayouts
+				0,       // pushConstantRangeCount
+				nullptr  // pPushConstantRanges
+			}
+		);
 }
 
 
@@ -441,6 +493,8 @@ void App::resize(VulkanWindow& w, const vk::SurfaceCapabilitiesKHR& surfaceCapab
 	window.swapchainImageViews.clear();
 	for(auto f : window.framebuffers)  device.destroy(f);
 	window.framebuffers.clear();
+	device.destroy(window.pipeline);
+	window.pipeline = nullptr;
 
 	// print info
 	cout << "Recreating swapchain (extent: " << newSurfaceExtent.width << "x" << newSurfaceExtent.height
@@ -454,7 +508,7 @@ void App::resize(VulkanWindow& w, const vk::SurfaceCapabilitiesKHR& surfaceCapab
 		device.createSwapchainKHRUnique(
 			vk::SwapchainCreateInfoKHR(
 				vk::SwapchainCreateFlagsKHR(),  // flags
-				window.surface(),                    // surface
+				window.surface(),               // surface
 				surfaceCapabilities.maxImageCount==0  // minImageCount
 					? max(requestedImageCount, surfaceCapabilities.minImageCount)
 					: clamp(requestedImageCount, surfaceCapabilities.minImageCount, surfaceCapabilities.maxImageCount),
@@ -515,12 +569,131 @@ void App::resize(VulkanWindow& w, const vk::SurfaceCapabilitiesKHR& surfaceCapab
 				)
 			)
 		);
+
+	// pipeline
+	window.pipeline =
+		device.createGraphicsPipeline(
+			nullptr,  // pipelineCache
+			vk::GraphicsPipelineCreateInfo(
+				vk::PipelineCreateFlags(),  // flags
+
+				// shader stages
+				2,  // stageCount
+				array{  // pStages
+					vk::PipelineShaderStageCreateInfo{
+						vk::PipelineShaderStageCreateFlags(),  // flags
+						vk::ShaderStageFlagBits::eVertex,  // stage
+						vsModule,  // module
+						"main",  // pName
+						nullptr  // pSpecializationInfo
+					},
+					vk::PipelineShaderStageCreateInfo{
+						vk::PipelineShaderStageCreateFlags(),  // flags
+						vk::ShaderStageFlagBits::eFragment,  // stage
+						fsModule,  // module
+						"main",  // pName
+						nullptr  // pSpecializationInfo
+					},
+				}.data(),
+
+				// vertex input
+				&(const vk::PipelineVertexInputStateCreateInfo&)vk::PipelineVertexInputStateCreateInfo{  // pVertexInputState
+					vk::PipelineVertexInputStateCreateFlags(),  // flags
+					0,        // vertexBindingDescriptionCount
+					nullptr,  // pVertexBindingDescriptions
+					0,        // vertexAttributeDescriptionCount
+					nullptr   // pVertexAttributeDescriptions
+				},
+
+				// input assembly
+				&(const vk::PipelineInputAssemblyStateCreateInfo&)vk::PipelineInputAssemblyStateCreateInfo{  // pInputAssemblyState
+					vk::PipelineInputAssemblyStateCreateFlags(),  // flags
+					vk::PrimitiveTopology::eTriangleList,  // topology
+					VK_FALSE  // primitiveRestartEnable
+				},
+
+				// tessellation
+				nullptr, // pTessellationState
+
+				// viewport
+				&(const vk::PipelineViewportStateCreateInfo&)vk::PipelineViewportStateCreateInfo{  // pViewportState
+					vk::PipelineViewportStateCreateFlags(),  // flags
+					1,  // viewportCount
+					array{  // pViewports
+						vk::Viewport(0.f, 0.f, float(newSurfaceExtent.width), float(newSurfaceExtent.height), 0.f, 1.f),
+					}.data(),
+					1,  // scissorCount
+					array{  // pScissors
+						vk::Rect2D(vk::Offset2D(0,0), newSurfaceExtent)
+					}.data(),
+				},
+
+				// rasterization
+				&(const vk::PipelineRasterizationStateCreateInfo&)vk::PipelineRasterizationStateCreateInfo{  // pRasterizationState
+					vk::PipelineRasterizationStateCreateFlags(),  // flags
+					VK_FALSE,  // depthClampEnable
+					VK_FALSE,  // rasterizerDiscardEnable
+					vk::PolygonMode::eFill,  // polygonMode
+					vk::CullModeFlagBits::eNone,  // cullMode
+					vk::FrontFace::eCounterClockwise,  // frontFace
+					VK_FALSE,  // depthBiasEnable
+					0.f,  // depthBiasConstantFactor
+					0.f,  // depthBiasClamp
+					0.f,  // depthBiasSlopeFactor
+					1.f   // lineWidth
+				},
+
+				// multisampling
+				&(const vk::PipelineMultisampleStateCreateInfo&)vk::PipelineMultisampleStateCreateInfo{  // pMultisampleState
+					vk::PipelineMultisampleStateCreateFlags(),  // flags
+					vk::SampleCountFlagBits::e1,  // rasterizationSamples
+					VK_FALSE,  // sampleShadingEnable
+					0.f,       // minSampleShading
+					nullptr,   // pSampleMask
+					VK_FALSE,  // alphaToCoverageEnable
+					VK_FALSE   // alphaToOneEnable
+				},
+
+				// depth and stencil
+				nullptr,  // pDepthStencilState
+
+				// blending
+				&(const vk::PipelineColorBlendStateCreateInfo&)vk::PipelineColorBlendStateCreateInfo{  // pColorBlendState
+					vk::PipelineColorBlendStateCreateFlags(),  // flags
+					VK_FALSE,  // logicOpEnable
+					vk::LogicOp::eClear,  // logicOp
+					1,  // attachmentCount
+					array{  // pAttachments
+						vk::PipelineColorBlendAttachmentState{
+							VK_FALSE,  // blendEnable
+							vk::BlendFactor::eZero,  // srcColorBlendFactor
+							vk::BlendFactor::eZero,  // dstColorBlendFactor
+							vk::BlendOp::eAdd,       // colorBlendOp
+							vk::BlendFactor::eZero,  // srcAlphaBlendFactor
+							vk::BlendFactor::eZero,  // dstAlphaBlendFactor
+							vk::BlendOp::eAdd,       // alphaBlendOp
+							vk::ColorComponentFlagBits::eR | vk::ColorComponentFlagBits::eG |
+								vk::ColorComponentFlagBits::eB | vk::ColorComponentFlagBits::eA  // colorWriteMask
+						},
+					}.data(),
+					array<float,4>{0.f,0.f,0.f,0.f}  // blendConstants
+				},
+
+				nullptr,  // pDynamicState
+				pipelineLayout,  // layout
+				renderPass,  // renderPass
+				0,  // subpass
+				vk::Pipeline(nullptr),  // basePipelineHandle
+				-1 // basePipelineIndex
+			)
+		).value;
 }
 
 
 void App::frame(VulkanWindow& w)
 {
 	Window& window = static_cast<Window&>(w);
+	cout << "x" << flush;
 
 	// wait for previous frame rendering work
 	// if still not finished
@@ -536,6 +709,9 @@ void App::frame(VulkanWindow& w)
 		throw runtime_error("Vulkan error: vkWaitForFences failed with error " + to_string(r) + ".");
 	}
 	device.resetFences(renderFinishedFence);
+
+	// increment frame counter
+	window.frameID++;
 
 	// acquire image
 	uint32_t imageIndex;
@@ -574,10 +750,19 @@ void App::frame(VulkanWindow& w)
 			vk::Rect2D(vk::Offset2D(0, 0), window.surfaceExtent()),  // renderArea
 			1,  // clearValueCount
 			&(const vk::ClearValue&)vk::ClearValue(  // pClearValues
-				vk::ClearColorValue(array<float, 4>{0.0f, 0.5f, 1.0f, 1.f})
+				vk::ClearColorValue(array<float, 4>{0.0f, 0.0f, 0.0f, 1.f})
 			)
 		),
 		vk::SubpassContents::eInline
+	);
+
+	// rendering commands
+	commandBuffer.bindPipeline(vk::PipelineBindPoint::eGraphics, window.pipeline);  // bind pipeline
+	commandBuffer.draw(  // draw single triangle
+		3,  // vertexCount
+		1,  // instanceCount
+		0,  // firstVertex
+		uint32_t(window.frameID)  // firstInstance
 	);
 
 	// end render pass and command buffer
@@ -618,6 +803,9 @@ void App::frame(VulkanWindow& w)
 		} else
 			throw runtime_error("Vulkan error: vkQueuePresentKHR() failed with error " + to_string(r) + ".");
 	}
+
+	// schedule next frame
+	window.scheduleFrame();
 }
 
 

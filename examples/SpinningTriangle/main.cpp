@@ -100,18 +100,22 @@ App::App(int argc, char** argv)
 
 App::~App()
 {
+	// wait for device idle state
+	// (to prevent errors during destruction of Vulkan resources)
 	if(device) {
-
-		// wait for device idle state
-		// (to prevent errors during destruction of Vulkan resources)
 		try {
 			device.waitIdle();
 		} catch(vk::Error& e) {
 			cout << "Failed because of Vulkan exception: " << e.what() << endl;
 		}
+	}
 
-		// destroy handles
-		// (the handles are destructed in certain (not arbitrary) order)
+	// destroy window
+	window.destroy();
+
+	// destroy handles
+	// (the handles are destructed in certain (not arbitrary) order)
+	if(device) {
 		device.destroy(pipeline);
 		device.destroy(pipelineLayout);
 		device.destroy(fsModule);
@@ -127,7 +131,6 @@ App::~App()
 		device.destroy();
 	}
 
-	window.destroy();
 #if defined(USE_PLATFORM_XLIB)
 	// On Xlib, VulkanWindow::finalize() needs to be called before instance destroy to avoid crash.
 	// It is workaround for the known bug in libXext: https://gitlab.freedesktop.org/xorg/lib/libxext/-/issues/3,
@@ -206,6 +209,7 @@ void App::init()
 					if(graphicsQueueFamily == UINT32_MAX)
 						graphicsQueueFamily = i;
 			}
+
 		}
 
 		if(graphicsQueueFamily != UINT32_MAX && presentationQueueFamily != UINT32_MAX)

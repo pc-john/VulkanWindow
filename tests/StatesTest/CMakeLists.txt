@@ -12,6 +12,8 @@ set(APP_INCLUDES
 )
 
 set(APP_SHADERS
+	shader.vert
+	shader.frag
 )
 
 # dependencies
