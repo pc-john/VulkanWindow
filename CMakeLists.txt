@@ -5,6 +5,7 @@ project(VulkanWindow)
 set(PROJECTS
 	examples/HelloWindow
 	examples/Mandelbrot
+	examples/SpinningTriangle
 	tests/MultiWindowTests
 	tests/InputTest
 	tests/StatesTest
