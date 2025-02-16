@@ -1981,7 +1981,7 @@ VkSurfaceKHR VulkanWindow::createInternal(VkInstance instance, VkExtent2D surfac
 
 	// init variables
 	_framePendingState = FramePendingState::NotPending;
-	_visible = true;
+	_visible = false;
 	_minimized = false;
 	_savedWidth = surfaceExtent.width;
 	_savedHeight = surfaceExtent.height;
@@ -4784,6 +4784,9 @@ void VulkanWindow::updateTitle()
 
 VulkanWindow::WindowState VulkanWindow::windowState() const
 {
+	if(!_visible)
+		return WindowState::Hidden;
+
 	WINDOWPLACEMENT wp;
 	wp.length = sizeof(WINDOWPLACEMENT);
 	if(!GetWindowPlacement(HWND(_hwnd), &wp))
@@ -4811,9 +4814,9 @@ void VulkanWindow::setWindowState(WindowState windowState)
 {
 	switch(windowState) {
 	case WindowState::Hidden:     hide(); break;
-	case WindowState::Minimized:  ShowWindow(HWND(_hwnd), SW_SHOWMINIMIZED); break;
+	case WindowState::Minimized:  ShowWindow(HWND(_hwnd), SW_SHOWMINIMIZED); _visible = true; break;
 	case WindowState::Normal:     ShowWindow(HWND(_hwnd), SW_SHOWNORMAL); break;
-	case WindowState::Maximized:  ShowWindow(HWND(_hwnd), SW_SHOWMAXIMIZED); break;
+	case WindowState::Maximized:  ShowWindow(HWND(_hwnd), SW_SHOWMAXIMIZED); _visible = true; break;
 	case WindowState::FullScreen: break;
 	}
 }
@@ -4870,12 +4873,31 @@ void VulkanWindow::setWindowState(WindowState windowState)
 
 	// change window state
 	switch(windowState) {
-	case WindowState::Hidden:     hide(); break;
-	case WindowState::Minimized:  if(!SDL_MinimizeWindow(_window)) throw runtime_error("VulkanWindow::setWindowState(): Failed to minimize window."); break;
-	case WindowState::Normal:     if(!SDL_RestoreWindow(_window))  throw runtime_error("VulkanWindow::setWindowState(): Failed to restore window."); break;
-	case WindowState::Maximized:  if(!SDL_MaximizeWindow(_window)) throw runtime_error("VulkanWindow::setWindowState(): Failed to maximize window."); break;
-	case WindowState::FullScreen: if(!SDL_SetWindowFullscreen(_window, true)) throw runtime_error("VulkanWindow::setWindowState(): Failed to make window fullscreen."); break;
-	default: throw runtime_error("VulkanWindow::setWindowState(): Invalid WindowState value passed as parameter.");
+	case WindowState::Hidden:
+		hide();
+		break;
+	case WindowState::Minimized:
+		if(!SDL_MinimizeWindow(_window))
+			throw runtime_error("VulkanWindow::setWindowState(): Failed to minimize window.");
+		show();
+		break;
+	case WindowState::Normal:
+		if(!SDL_RestoreWindow(_window))
+			throw runtime_error("VulkanWindow::setWindowState(): Failed to restore window.");
+		show();
+		break;
+	case WindowState::Maximized:
+		if(!SDL_MaximizeWindow(_window))
+			throw runtime_error("VulkanWindow::setWindowState(): Failed to maximize window.");
+		show();
+		break;
+	case WindowState::FullScreen:
+		if(!SDL_SetWindowFullscreen(_window, true))
+			throw runtime_error("VulkanWindow::setWindowState(): Failed to make window fullscreen.");
+		show();
+		break;
+	default:
+		throw runtime_error("VulkanWindow::setWindowState(): Invalid WindowState value passed as parameter.");
 	}
 }
 
@@ -4910,10 +4932,13 @@ void VulkanWindow::setWindowState(WindowState windowState)
 	// change window state
 	switch(windowState) {
 	case WindowState::Hidden:     hide(); break;
-	case WindowState::Minimized:  SDL_MinimizeWindow(_window); break;
-	case WindowState::Normal:     SDL_RestoreWindow(_window); break;
-	case WindowState::Maximized:  SDL_MaximizeWindow(_window); break;
-	case WindowState::FullScreen: if(SDL_SetWindowFullscreen(_window, SDL_WINDOW_FULLSCREEN_DESKTOP) != 0) throw runtime_error("VulkanWindow::setWindowState(): Failed to make window fullscreen."); break;
+	case WindowState::Minimized:  show(); SDL_MinimizeWindow(_window); break;
+	case WindowState::Normal:     SDL_RestoreWindow(_window); show(); break;
+	case WindowState::Maximized:  SDL_MaximizeWindow(_window); show(); break;
+	case WindowState::FullScreen: if(SDL_SetWindowFullscreen(_window, SDL_WINDOW_FULLSCREEN_DESKTOP) != 0)
+		                              throw runtime_error("VulkanWindow::setWindowState(): Failed to make window fullscreen.");
+		                          show();
+		                          break;
 	default: throw runtime_error("VulkanWindow::setWindowState(): Invalid WindowState value passed as parameter.");
 	}
 }
@@ -4945,20 +4970,21 @@ void VulkanWindow::setWindowState(WindowState windowState)
 			   windowState == WindowState::Maximized)
 				glfwSetWindowMonitor(_window, nullptr, _savedPosX, _savedPosY, _savedWidth, _savedHeight, 0);
 			if(windowState == WindowState::Maximized)
-				glfwRestoreWindow(_window);
+				glfwRestoreWindow(_window);  // this seems necessary to transition correctly from full screen to maximized state (seen on glfw 3.3.8 on 2025-02-14)
 		}
 	}
 
 	// change window state
 	switch(windowState) {
 	case WindowState::Hidden:     hide(); break;
-	case WindowState::Minimized:  glfwIconifyWindow(_window); break;
-	case WindowState::Normal:     glfwRestoreWindow(_window); break;
-	case WindowState::Maximized:  glfwMaximizeWindow(_window); break;
+	case WindowState::Minimized:  glfwIconifyWindow(_window); show(); break;
+	case WindowState::Normal:     glfwRestoreWindow(_window); show(); break;
+	case WindowState::Maximized:  glfwMaximizeWindow(_window); show(); break;
 	case WindowState::FullScreen: {
 			GLFWmonitor* m = glfwGetPrimaryMonitor();
 			const GLFWvidmode* mode = glfwGetVideoMode(m);
 			glfwSetWindowMonitor(_window, m, 0, 0, mode->width, mode->height, mode->refreshRate);
+			show();
 			break;
 		}
 	default: throw runtime_error("VulkanWindow::setWindowState(): Invalid WindowState value passed as parameter.");

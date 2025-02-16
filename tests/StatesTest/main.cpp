@@ -1,12 +1,64 @@
 #include "VulkanWindow.h"
 #include <vulkan/vulkan.hpp>
 #include <iostream>
+#include <vector>
 
 using namespace std;
 
 
 // constants
 constexpr const char* appName = "StatesTest";
+
+
+// Window class
+class Window : public VulkanWindow {
+public:
+	vk::SwapchainKHR swapchain;
+	vector<vk::ImageView> swapchainImageViews;
+	vector<vk::Framebuffer> framebuffers;
+
+	Window(vk::Instance instance, vk::Extent2D surfaceExtent, const string& title = "Vulkan window")
+		: VulkanWindow()  { VulkanWindow::create(instance, surfaceExtent, title); }
+	Window(Window&& other) noexcept : VulkanWindow(move(other))  {
+		swapchain = other.swapchain; other.swapchain = nullptr;
+		swapchainImageViews = move(other.swapchainImageViews);
+		framebuffers = move(other.framebuffers);
+	}
+	~Window()  { destroyMembers(); }
+	Window& operator=(Window&& other) noexcept {
+		destroyMembers();
+		VulkanWindow::operator=(move(other));
+		swapchain = other.swapchain; other.swapchain = nullptr;
+		swapchainImageViews = move(other.swapchainImageViews);
+		framebuffers = move(other.framebuffers);
+		return *this;
+	}
+protected:
+	void destroyMembers() noexcept;  // destroys only members of this object; not any parent class members
+};
+
+void Window::destroyMembers() noexcept
+{
+	if(!_device)
+		return;
+
+	// wait for device idle state
+	// (to prevent errors during destruction of Vulkan resources)
+	vk::Device device = vk::Device(_device);
+	try {
+		device.waitIdle();
+	} catch(vk::Error& e) {
+		cout << "Failed because of Vulkan exception: " << e.what() << endl;
+	}
+
+	// destroy resources
+	for(auto f : framebuffers)  device.destroy(f);
+	framebuffers.clear();
+	for(auto v : swapchainImageViews)  device.destroy(v);
+	swapchainImageViews.clear();
+	device.destroy(swapchain);
+	swapchain = nullptr;
+}
 
 
 // global application data
@@ -19,9 +71,7 @@ public:
 	void init();
 	void resize(VulkanWindow& window, const vk::SurfaceCapabilitiesKHR& surfaceCapabilities, vk::Extent2D newSurfaceExtent);
 	void frame(VulkanWindow& window);
-	void mouseMove(VulkanWindow& window, const VulkanWindow::MouseState& mouseState);
-	void mouseButton(VulkanWindow&, size_t button, VulkanWindow::ButtonState buttonState, const VulkanWindow::MouseState& mouseState);
-	void mouseWheel(VulkanWindow& window, float wheelX, float wheelY, const VulkanWindow::MouseState& mouseState);
+	void closeWindow(VulkanWindow& w);
 	void key(VulkanWindow& window, VulkanWindow::KeyState keyState, VulkanWindow::ScanCode scanCode, VulkanWindow::KeyCode key);
 
 	// Vulkan instance must be destructed as the last Vulkan handle.
@@ -30,7 +80,7 @@ public:
 
 	// window needs to be destroyed after the swapchain
 	// This is required especially by Wayland.
-	VulkanWindow window;
+	std::vector<Window> windowList;
 
 	// Vulkan variables, handles and objects
 	// (they need to be destructed in non-arbitrary order in the destructor)
@@ -42,9 +92,6 @@ public:
 	vk::Queue presentationQueue;
 	vk::SurfaceFormatKHR surfaceFormat;
 	vk::RenderPass renderPass;
-	vk::SwapchainKHR swapchain;
-	vector<vk::ImageView> swapchainImageViews;
-	vector<vk::Framebuffer> framebuffers;
 	vk::CommandPool commandPool;
 	vk::CommandBuffer commandBuffer;
 	vk::Semaphore imageAvailableSemaphore;
@@ -62,30 +109,30 @@ App::App(int argc, char** argv)
 
 App::~App()
 {
+	// wait for device idle state
+	// (to prevent errors during destruction of Vulkan resources)
 	if(device) {
-
-		// wait for device idle state
-		// (to prevent errors during destruction of Vulkan resources)
 		try {
 			device.waitIdle();
 		} catch(vk::Error& e) {
 			cout << "Failed because of Vulkan exception: " << e.what() << endl;
 		}
+	}
 
-		// destroy handles
-		// (the handles are destructed in certain (not arbitrary) order)
+	// destroy windows
+	windowList.clear();
+
+	// destroy handles
+	// (the handles are destructed in certain (not arbitrary) order)
+	if(device) {
 		device.destroy(renderFinishedFence);
 		device.destroy(renderFinishedSemaphore);
 		device.destroy(imageAvailableSemaphore);
 		device.destroy(commandPool);
-		for(auto f : framebuffers)  device.destroy(f);
-		for(auto v : swapchainImageViews)  device.destroy(v);
-		device.destroy(swapchain);
 		device.destroy(renderPass);
 		device.destroy();
 	}
 
-	window.destroy();
 #if defined(USE_PLATFORM_XLIB)
 	// On Xlib, VulkanWindow::finalize() needs to be called before instance destroy to avoid crash.
 	// It is workaround for the known bug in libXext: https://gitlab.freedesktop.org/xorg/lib/libxext/-/issues/3,
@@ -121,8 +168,11 @@ void App::init()
 		);
 
 	// create surface
-	vk::SurfaceKHR surface =
-		window.create(instance, {1024, 768}, string(appName));
+	windowList.emplace_back(instance, vk::Extent2D{1024, 768}, string(appName) + " - hidden");
+	windowList.emplace_back(instance, vk::Extent2D{1024, 768}, string(appName) + " - minimized");
+	windowList.emplace_back(instance, vk::Extent2D{1024, 768}, string(appName) + " - normal");
+	windowList.emplace_back(instance, vk::Extent2D{1024, 768}, string(appName) + " - maximized");
+	windowList.emplace_back(instance, vk::Extent2D{1024, 768}, string(appName) + " - full screen");
 
 	// find compatible devices
 	vector<vk::PhysicalDevice> deviceList = instance.enumeratePhysicalDevices();
@@ -144,7 +194,14 @@ void App::init()
 		for(uint32_t i=0, c=uint32_t(queueFamilyList.size()); i<c; i++) {
 
 			// test for presentation support
-			if(pd.getSurfaceSupportKHR(i, surface)) {
+			bool presentationSupport = true;
+			for(auto& w : windowList)
+				if(!pd.getSurfaceSupportKHR(i, w.surface())) {
+					presentationSupport = false;
+					break;
+				}
+
+			if(presentationSupport) {
 
 				// test for graphics operations support
 				if(queueFamilyList[i].queueFlags & vk::QueueFlagBits::eGraphics) {
@@ -164,6 +221,7 @@ void App::init()
 					if(graphicsQueueFamily == UINT32_MAX)
 						graphicsQueueFamily = i;
 			}
+
 		}
 
 		if(graphicsQueueFamily != UINT32_MAX && presentationQueueFamily != UINT32_MAX)
@@ -241,11 +299,12 @@ void App::init()
 	presentationQueue = device.getQueue(presentationQueueFamily, 0);
 
 	// give window Vulkan device used for rendering
-	window.setDevice(device, physicalDevice);
+	for(VulkanWindow& w : windowList)
+		w.setDevice(device, physicalDevice);
 
 	// print surface formats
 	cout << "Surface formats:" << endl;
-	vector<vk::SurfaceFormatKHR> availableSurfaceFormats = physicalDevice.getSurfaceFormatsKHR(surface);
+	vector<vk::SurfaceFormatKHR> availableSurfaceFormats = physicalDevice.getSurfaceFormatsKHR(windowList.front().surface());
 	for(vk::SurfaceFormatKHR sf : availableSurfaceFormats)
 		cout << "   " << vk::to_string(sf.format) << ", color space: " << vk::to_string(sf.colorSpace) << endl;
 
@@ -372,14 +431,16 @@ void App::init()
 
 /** Recreate swapchain and pipeline callback method.
  *  The method is usually called after the window resize and on the application start. */
-void App::resize(VulkanWindow&, const vk::SurfaceCapabilitiesKHR& surfaceCapabilities,
+void App::resize(VulkanWindow& w, const vk::SurfaceCapabilitiesKHR& surfaceCapabilities,
                  vk::Extent2D newSurfaceExtent)
 {
+	Window& window = static_cast<Window&>(w);
+
 	// clear resources
-	for(auto v : swapchainImageViews)  device.destroy(v);
-	swapchainImageViews.clear();
-	for(auto f : framebuffers)  device.destroy(f);
-	framebuffers.clear();
+	for(auto v : window.swapchainImageViews)  device.destroy(v);
+	window.swapchainImageViews.clear();
+	for(auto f : window.framebuffers)  device.destroy(f);
+	window.framebuffers.clear();
 
 	// print info
 	cout << "Recreating swapchain (extent: " << newSurfaceExtent.width << "x" << newSurfaceExtent.height
@@ -393,7 +454,7 @@ void App::resize(VulkanWindow&, const vk::SurfaceCapabilitiesKHR& surfaceCapabil
 		device.createSwapchainKHRUnique(
 			vk::SwapchainCreateInfoKHR(
 				vk::SwapchainCreateFlagsKHR(),  // flags
-				window.surface(),               // surface
+				window.surface(),                    // surface
 				surfaceCapabilities.maxImageCount==0  // minImageCount
 					? max(requestedImageCount, surfaceCapabilities.minImageCount)
 					: clamp(requestedImageCount, surfaceCapabilities.minImageCount, surfaceCapabilities.maxImageCount),
@@ -409,17 +470,17 @@ void App::resize(VulkanWindow&, const vk::SurfaceCapabilitiesKHR& surfaceCapabil
 				vk::CompositeAlphaFlagBitsKHR::eOpaque,  // compositeAlpha
 				vk::PresentModeKHR::eFifo,  // presentMode
 				VK_TRUE,  // clipped
-				swapchain  // oldSwapchain
+				window.swapchain  // oldSwapchain
 			)
 		);
-	device.destroy(swapchain);
-	swapchain = newSwapchain.release();
+	device.destroy(window.swapchain);
+	window.swapchain = newSwapchain.release();
 
 	// swapchain images and image views
-	vector<vk::Image> swapchainImages = device.getSwapchainImagesKHR(swapchain);
-	swapchainImageViews.reserve(swapchainImages.size());
+	vector<vk::Image> swapchainImages = device.getSwapchainImagesKHR(window.swapchain);
+	window.swapchainImageViews.reserve(swapchainImages.size());
 	for(vk::Image image : swapchainImages)
-		swapchainImageViews.emplace_back(
+		window.swapchainImageViews.emplace_back(
 			device.createImageView(
 				vk::ImageViewCreateInfo(
 					vk::ImageViewCreateFlags(),  // flags
@@ -439,15 +500,15 @@ void App::resize(VulkanWindow&, const vk::SurfaceCapabilitiesKHR& surfaceCapabil
 		);
 
 	// framebuffers
-	framebuffers.reserve(swapchainImages.size());
+	window.framebuffers.reserve(swapchainImages.size());
 	for(size_t i=0, c=swapchainImages.size(); i<c; i++)
-		framebuffers.emplace_back(
+		window.framebuffers.emplace_back(
 			device.createFramebuffer(
 				vk::FramebufferCreateInfo(
 					vk::FramebufferCreateFlags(),  // flags
 					renderPass,  // renderPass
 					1,  // attachmentCount
-					&swapchainImageViews[i],  // pAttachments
+					&window.swapchainImageViews[i],  // pAttachments
 					newSurfaceExtent.width,  // width
 					newSurfaceExtent.height,  // height
 					1  // layers
@@ -457,8 +518,10 @@ void App::resize(VulkanWindow&, const vk::SurfaceCapabilitiesKHR& surfaceCapabil
 }
 
 
-void App::frame(VulkanWindow&)
+void App::frame(VulkanWindow& w)
 {
+	Window& window = static_cast<Window&>(w);
+
 	// wait for previous frame rendering work
 	// if still not finished
 	vk::Result r =
@@ -478,7 +541,7 @@ void App::frame(VulkanWindow&)
 	uint32_t imageIndex;
 	r =
 		device.acquireNextImageKHR(
-			swapchain,                // swapchain
+			window.swapchain,         // swapchain
 			uint64_t(3e9),            // timeout (3s)
 			imageAvailableSemaphore,  // semaphore to signal
 			vk::Fence(nullptr),       // fence to signal
@@ -507,7 +570,7 @@ void App::frame(VulkanWindow&)
 	commandBuffer.beginRenderPass(
 		vk::RenderPassBeginInfo(
 			renderPass,  // renderPass
-			framebuffers[imageIndex],  // framebuffer
+			window.framebuffers[imageIndex],  // framebuffer
 			vk::Rect2D(vk::Offset2D(0, 0), window.surfaceExtent()),  // renderArea
 			1,  // clearValueCount
 			&(const vk::ClearValue&)vk::ClearValue(  // pClearValues
@@ -541,7 +604,7 @@ void App::frame(VulkanWindow&)
 		presentationQueue.presentKHR(
 			&(const vk::PresentInfoKHR&)vk::PresentInfoKHR(
 				1, &renderFinishedSemaphore,  // waitSemaphoreCount + pWaitSemaphores
-				1, &swapchain, &imageIndex,  // swapchainCount + pSwapchains + pImageIndices
+				1, &window.swapchain, &imageIndex,  // swapchainCount + pSwapchains + pImageIndices
 				nullptr  // pResults
 			)
 		);
@@ -558,18 +621,15 @@ void App::frame(VulkanWindow&)
 }
 
 
-void App::mouseMove(VulkanWindow&, const VulkanWindow::MouseState& s)
+void App::closeWindow(VulkanWindow& w)
 {
-}
+	w.hide();
 
-
-void App::mouseButton(VulkanWindow&, size_t button, VulkanWindow::ButtonState buttonState, const VulkanWindow::MouseState& s)
-{
-}
-
-
-void App::mouseWheel(VulkanWindow&, float wheelX, float wheelY, const VulkanWindow::MouseState& s)
-{
+	// exit if all windows are closed
+	for(VulkanWindow& wi : windowList)
+		if(wi.isVisible())
+			return;
+	VulkanWindow::exitMainLoop();
 }
 
 
@@ -601,24 +661,47 @@ int main(int argc, char* argv[])
 
 		App app(argc, argv);
 		app.init();
-		app.window.setResizeCallback(
-			bind(
-				&App::resize,
-				&app,
-				placeholders::_1,
-				placeholders::_2,
-				placeholders::_3
-			)
-		);
-		app.window.setFrameCallback(
-			bind(&App::frame, &app, placeholders::_1)
-		);
-		app.window.setMouseMoveCallback(bind(&App::mouseMove, &app, placeholders::_1, placeholders::_2));
-		app.window.setMouseButtonCallback(bind(&App::mouseButton, &app, placeholders::_1, placeholders::_2, placeholders::_3, placeholders::_4));
-		app.window.setMouseWheelCallback(bind(&App::mouseWheel, &app, placeholders::_1, placeholders::_2, placeholders::_3, placeholders::_4));
-		app.window.setKeyCallback(bind(&App::key, &app, placeholders::_1, placeholders::_2, placeholders::_3, placeholders::_4));
-		app.window.show();
-		app.window.mainLoop();
+		for(VulkanWindow& w : app.windowList)
+			w.setResizeCallback(
+				bind(
+					&App::resize,
+					&app,
+					placeholders::_1,
+					placeholders::_2,
+					placeholders::_3
+				)
+			);
+		for(VulkanWindow& w : app.windowList)
+			w.setFrameCallback(
+				bind(&App::frame, &app, placeholders::_1)
+			);
+		for(VulkanWindow& w : app.windowList)
+			w.setCloseCallback(bind(&App::closeWindow, &app, placeholders::_1));
+		for(VulkanWindow& w : app.windowList)
+			w.setKeyCallback(bind(&App::key, &app, placeholders::_1, placeholders::_2, placeholders::_3, placeholders::_4));
+		app.windowList[1].showMinimized();
+		app.windowList[3].showMaximized();
+		app.windowList[2].showNormal();
+		app.windowList[4].showFullScreen();
+
+		cout << "Initial window state:" << endl;
+		for(size_t i=0,c=app.windowList.size(); i<c; i++) {
+			Window& w = app.windowList[i];
+			cout << "Window " << i << ": ";
+			if(w.isVisible())  cout << "visible, ";
+			else  cout << "not visible, ";
+			switch(w.windowState()) {
+			case VulkanWindow::WindowState::Hidden:     cout << "hidden"; break;
+			case VulkanWindow::WindowState::Minimized:  cout << "minimized"; break;
+			case VulkanWindow::WindowState::Normal:     cout << "normal"; break;
+			case VulkanWindow::WindowState::Maximized:  cout << "maximized"; break;
+			case VulkanWindow::WindowState::FullScreen: cout << "full screen"; break;
+			default: cout << "unknown";
+			}
+			cout << endl;
+		}
+
+		app.windowList[0].mainLoop();
 
 	// catch exceptions
 	} catch(vk::Error& e) {

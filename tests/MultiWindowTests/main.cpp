@@ -158,21 +158,22 @@ App::App(int argc, char** argv)
 
 App::~App()
 {
-	// destroy windows
-	windowList.clear();
-
+	// wait for device idle state
+	// (to prevent errors during destruction of Vulkan resources)
 	if(device) {
-
-		// wait for device idle state
-		// (to prevent errors during destruction of Vulkan resources)
 		try {
 			device.waitIdle();
 		} catch(vk::Error& e) {
 			cout << "Failed because of Vulkan exception: " << e.what() << endl;
 		}
+	}
 
-		// destroy handles
-		// (the handles are destructed in certain (not arbitrary) order)
+	// destroy windows
+	windowList.clear();
+
+	// destroy handles
+	// (the handles are destructed in certain (not arbitrary) order)
+	if(device) {
 		device.destroy(pipelineLayout);
 		device.destroy(fsModule);
 		device.destroy(vsModule);
