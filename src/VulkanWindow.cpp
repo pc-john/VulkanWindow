@@ -175,6 +175,7 @@ public:
 	static void libdecorFrameCommit(libdecor_frame* frame, void* data);
 	static void libdecorFrameDismissPopup(libdecor_frame* frame, const char* seatName, void* data);
 	static void frameListenerDone(void *data, wl_callback* cb, uint32_t time);
+	static void syncListenerDone(void *data, wl_callback* cb, uint32_t time);
 	static void seatListenerCapabilities(void* data, wl_seat* seat, uint32_t capabilities);
 	static void pointerListenerEnter(void* data, wl_pointer* pointer, uint32_t serial, wl_surface* surface,
 	                                 wl_fixed_t surface_x, wl_fixed_t surface_y);
@@ -341,6 +342,9 @@ static libdecor_frame_interface libdecorFrameInterface{
 static const wl_callback_listener frameListener{
 	VulkanWindowPrivate::frameListenerDone,
 };
+static const wl_callback_listener syncListener{
+	VulkanWindowPrivate::syncListenerDone,
+};
 static const wl_seat_listener seatListener{
 	VulkanWindowPrivate::seatListenerCapabilities,
 };
@@ -397,6 +401,11 @@ struct Funcs {
 	struct libdecor_frame* (*libdecor_decorate)(struct libdecor* context, struct wl_surface* surface,
 		const struct libdecor_frame_interface* iface, void* user_data);
 	void (*libdecor_frame_set_title)(struct libdecor_frame* frame, const char* title);
+	void (*libdecor_frame_set_minimized)(struct libdecor_frame* frame);
+	void (*libdecor_frame_set_maximized)(struct libdecor_frame* frame);
+	void (*libdecor_frame_unset_maximized)(struct libdecor_frame* frame);
+	void (*libdecor_frame_set_fullscreen)(struct libdecor_frame *frame, struct wl_output *output);
+	void (*libdecor_frame_unset_fullscreen)(struct libdecor_frame *frame);
 	void (*libdecor_frame_map)(struct libdecor_frame* frame);
 	bool (*libdecor_configuration_get_content_size)(struct libdecor_configuration* configuration,
 		struct libdecor_frame* frame, int* width, int* height);
@@ -940,6 +949,11 @@ void VulkanWindow::init(void* data)
 		reinterpret_cast<void*&>(funcs.libdecor_frame_set_user_data) = dlsym(libdecorHandle, "libdecor_frame_set_user_data");
 		reinterpret_cast<void*&>(funcs.libdecor_decorate)            = dlsym(libdecorHandle, "libdecor_decorate");
 		reinterpret_cast<void*&>(funcs.libdecor_frame_set_title)     = dlsym(libdecorHandle, "libdecor_frame_set_title");
+		reinterpret_cast<void*&>(funcs.libdecor_frame_set_minimized) = dlsym(libdecorHandle, "libdecor_frame_set_minimized");
+		reinterpret_cast<void*&>(funcs.libdecor_frame_set_maximized) = dlsym(libdecorHandle, "libdecor_frame_set_maximized");
+		reinterpret_cast<void*&>(funcs.libdecor_frame_unset_maximized) = dlsym(libdecorHandle, "libdecor_frame_unset_maximized");
+		reinterpret_cast<void*&>(funcs.libdecor_frame_set_fullscreen) = dlsym(libdecorHandle, "libdecor_frame_set_fullscreen");
+		reinterpret_cast<void*&>(funcs.libdecor_frame_unset_fullscreen) = dlsym(libdecorHandle, "libdecor_frame_unset_fullscreen");
 		reinterpret_cast<void*&>(funcs.libdecor_frame_map)           = dlsym(libdecorHandle, "libdecor_frame_map");
 		reinterpret_cast<void*&>(funcs.libdecor_configuration_get_content_size) = dlsym(libdecorHandle, "libdecor_configuration_get_content_size");
 		reinterpret_cast<void*&>(funcs.libdecor_state_new)           = dlsym(libdecorHandle, "libdecor_state_new");
@@ -947,7 +961,9 @@ void VulkanWindow::init(void* data)
 		reinterpret_cast<void*&>(funcs.libdecor_state_free)          = dlsym(libdecorHandle, "libdecor_state_free");
 		reinterpret_cast<void*&>(funcs.libdecor_dispatch)            = dlsym(libdecorHandle, "libdecor_dispatch");
 		if(!funcs.libdecor_new || !funcs.libdecor_unref || !funcs.libdecor_frame_unref || !funcs.libdecor_decorate ||
-		   !funcs.libdecor_frame_set_title || !funcs.libdecor_frame_map || !funcs.libdecor_configuration_get_content_size ||
+		   !funcs.libdecor_frame_set_title || !funcs.libdecor_frame_set_minimized || !funcs.libdecor_frame_set_maximized ||
+		   !funcs.libdecor_frame_unset_maximized || !funcs.libdecor_frame_set_fullscreen ||
+		   !funcs.libdecor_frame_unset_fullscreen || !funcs.libdecor_frame_map || !funcs.libdecor_configuration_get_content_size ||
 		   !funcs.libdecor_state_new || !funcs.libdecor_frame_commit || !funcs.libdecor_state_free || !funcs.libdecor_dispatch)
 		{
 			throw runtime_error("Cannot retrieve all function pointers out of libdecor-0.so.");
@@ -1464,7 +1480,6 @@ VulkanWindow::VulkanWindow(VulkanWindow&& other) noexcept
 		wl_callback_set_user_data(_scheduledFrameCallback, this);
 
 	_forcedFrame = other._forcedFrame;
-	_title = move(other._title);
 
 	// update pointers to this object
 	if(windowUnderPointer == &other)
@@ -1621,7 +1636,6 @@ VulkanWindow& VulkanWindow::operator=(VulkanWindow&& other) noexcept
 	if(_scheduledFrameCallback)
 		wl_callback_set_user_data(_scheduledFrameCallback, this);
 	_forcedFrame = other._forcedFrame;
-	_title = move(other._title);
 
 	// update pointers to this object
 	if(windowUnderPointer == &other)
@@ -3092,7 +3106,7 @@ void VulkanWindow::scheduleFrame()
 #elif defined(USE_PLATFORM_WAYLAND)
 
 
-void VulkanWindow::show()
+void VulkanWindow::show(void (*xdgConfigFunc)(VulkanWindow&), void (*libdecorConfigFunc)(VulkanWindow&))
 {
 	// asserts for valid usage
 	assert(_surface && "VulkanWindow::_surface is null, indicating invalid VulkanWindow object. Call VulkanWindow::create() to initialize it.");
@@ -3105,15 +3119,19 @@ void VulkanWindow::show()
 
 	if(_libdecorContext)
 	{
+
 		// create libdecor decorations
 		_libdecorFrame = funcs.libdecor_decorate(_libdecorContext, _wlSurface, &libdecorFrameInterface, this);
 		if(_libdecorFrame == nullptr)
 			throw runtime_error("VulkanWindow::show(): libdecor_decorate() failed.");
 		funcs.libdecor_frame_set_title(_libdecorFrame, _title.c_str());
+		libdecorConfigFunc(*this);
 		funcs.libdecor_frame_map(_libdecorFrame);
+
 	}
 	else
 	{
+
 		// create xdg surface
 		_xdgSurface = xdg_wm_base_get_xdg_surface(_xdgWmBase, _wlSurface);
 		if(_xdgSurface == nullptr)
@@ -3132,22 +3150,52 @@ void VulkanWindow::show()
 		xdg_toplevel_set_title(_xdgTopLevel, _title.c_str());
 		if(xdg_toplevel_add_listener(_xdgTopLevel, &xdgToplevelListener, this))
 			throw runtime_error("xdg_toplevel_add_listener() failed.");
+		xdgConfigFunc(*this);
 		wl_surface_commit(_wlSurface);
+
 	}
+
+	// send callback
+	wl_callback* callback = wl_display_sync(_display);
+	if(wl_callback_add_listener(callback, &syncListener, this))
+		throw runtime_error("wl_callback_add_listener() failed.");
+	_numSyncEventsOnTheFly++;
+	wl_display_flush(_display);
 
 	_forcedFrame = true;
 	_resizePending = true;
 }
 
 
-void VulkanWindowPrivate::xdgToplevelListenerConfigure(void* data, xdg_toplevel* toplevel, int32_t width, int32_t height, wl_array*)
+void VulkanWindowPrivate::xdgToplevelListenerConfigure(void* data, xdg_toplevel* toplevel, int32_t width, int32_t height, wl_array* states)
 {
 	cout << "toplevel configure (width=" << width << ", height=" << height << ")" << endl;
+
+	// update window state
+	// (following for loop is equivalent to wl_array_for_each(s, states) used in C)
+	VulkanWindowPrivate* w = static_cast<VulkanWindowPrivate*>(data);
+	bool fullscreen = false;
+	bool maximized = false;
+	uint32_t* p;
+	for(p = static_cast<uint32_t*>(states->data);
+			reinterpret_cast<char*>(p) < static_cast<char*>(states->data) + states->size;
+			p++)
+	{
+		switch(*p) {
+		case XDG_TOPLEVEL_STATE_MAXIMIZED: maximized = true; break;
+		case XDG_TOPLEVEL_STATE_FULLSCREEN: fullscreen = true; break;
+		}
+	}
+	if(fullscreen)
+		w->_windowState = WindowState::FullScreen;
+	else if(maximized)
+		w->_windowState = WindowState::Maximized;
+	else
+		w->_windowState = WindowState::Normal;
 
 	// if width or height of the window changed,
 	// schedule swapchain resize and force new frame rendering
 	// (width and height of zero means that the compositor does not know the window dimension)
-	VulkanWindowPrivate* w = static_cast<VulkanWindowPrivate*>(data);
 	if(uint32_t(width) != w->_surfaceExtent.width && width != 0) {
 		w->_surfaceExtent.width = width;
 		if(uint32_t(height) != w->_surfaceExtent.height && height != 0)
@@ -3243,6 +3291,10 @@ void VulkanWindowPrivate::xdgToplevelListenerClose(void* data, xdg_toplevel* xdg
 		w->hide();
 		VulkanWindow::exitMainLoop();
 	}
+
+	// update window state
+	if(w->_xdgTopLevel == nullptr)
+		w->_windowState = WindowState::Hidden;
 }
 
 
@@ -3290,6 +3342,7 @@ void VulkanWindow::hide()
 		wl_surface_attach(_wlSurface, nullptr, 0, 0);
 		wl_surface_commit(_wlSurface);
 	}
+	_windowState = WindowState::Hidden;
 }
 
 
@@ -3337,7 +3390,8 @@ void VulkanWindow::scheduleFrame()
 
 	cout << "s" << flush;
 	_scheduledFrameCallback = wl_surface_frame(_wlSurface);
-	wl_callback_add_listener(_scheduledFrameCallback, &frameListener, this);
+	if(wl_callback_add_listener(_scheduledFrameCallback, &frameListener, this))
+		throw runtime_error("wl_callback_add_listener() failed.");
 	wl_surface_commit(_wlSurface);
 }
 
@@ -4834,13 +4888,139 @@ void VulkanWindow::setWindowState(WindowState windowState)
 
 #elif defined(USE_PLATFORM_WAYLAND)
 
+void VulkanWindowPrivate::syncListenerDone(void *data, wl_callback* cb, uint32_t time)
+{
+	VulkanWindowPrivate* w = static_cast<VulkanWindowPrivate*>(data);
+	w->_numSyncEventsOnTheFly--;
+}
+
 VulkanWindow::WindowState VulkanWindow::windowState() const
 {
-	return WindowState::Normal;
+	// make sure all window state changes were processed by Wayland server
+	// (if _numSyncEventsOnTheFly is not zero, dispatch Wayland events until it becomes zero)
+	while(_numSyncEventsOnTheFly != 0)
+		if(wl_display_dispatch(_display) == -1)  // it blocks if there are no events
+			throw runtime_error("wl_display_dispatch() failed.");
+
+	return _windowState;
 }
 
 void VulkanWindow::setWindowState(WindowState windowState)
 {
+	// change window state
+	switch(windowState) {
+	case WindowState::Hidden:
+		hide();
+		break;
+	case WindowState::Minimized:
+		if(!isVisible())
+
+			// show the window with appropriate settings
+			show(
+				[](VulkanWindow& w) { xdg_toplevel_set_minimized(w._xdgTopLevel); },
+				[](VulkanWindow& w) { funcs.libdecor_frame_set_minimized(w._libdecorFrame); }
+			);
+
+		else
+
+			// set window state
+			if(_libdecorFrame)
+				funcs.libdecor_frame_set_minimized(_libdecorFrame);
+			else
+				xdg_toplevel_set_minimized(_xdgTopLevel);
+
+		break;
+	case WindowState::Normal:
+		if(!isVisible())
+
+			// show the window with appropriate settings
+			show(
+				[](VulkanWindow& w) { xdg_toplevel_unset_maximized(w._xdgTopLevel); xdg_toplevel_unset_fullscreen(w._xdgTopLevel); },
+				[](VulkanWindow& w) { funcs.libdecor_frame_unset_maximized(w._libdecorFrame); funcs.libdecor_frame_unset_fullscreen(w._libdecorFrame); }
+			);
+
+		else {
+
+			// set window state
+			if(_libdecorFrame) {
+				funcs.libdecor_frame_unset_maximized(_libdecorFrame);
+				funcs.libdecor_frame_unset_fullscreen(_libdecorFrame);
+			}
+			else {
+				xdg_toplevel_unset_maximized(_xdgTopLevel);
+				xdg_toplevel_unset_fullscreen(_xdgTopLevel);
+			}
+
+			// send callback
+			wl_callback* callback = wl_display_sync(_display);
+			if(wl_callback_add_listener(callback, &syncListener, this))
+				throw runtime_error("wl_callback_add_listener() failed.");
+			_numSyncEventsOnTheFly++;
+			wl_display_flush(_display);
+
+		}
+		break;
+	case WindowState::Maximized:
+		if(!isVisible())
+
+			// show the window with appropriate settings
+			show(
+				[](VulkanWindow& w) { xdg_toplevel_set_maximized(w._xdgTopLevel); xdg_toplevel_unset_fullscreen(w._xdgTopLevel); },
+				[](VulkanWindow& w) { funcs.libdecor_frame_set_maximized(w._libdecorFrame); funcs.libdecor_frame_unset_fullscreen(w._libdecorFrame); }
+			);
+
+		else {
+
+			// send callback
+			if(_libdecorFrame) {
+				funcs.libdecor_frame_set_maximized(_libdecorFrame);
+				funcs.libdecor_frame_unset_fullscreen(_libdecorFrame);
+			}
+			else {
+				xdg_toplevel_set_maximized(_xdgTopLevel);
+				xdg_toplevel_unset_fullscreen(_xdgTopLevel);
+			}
+
+			// send callback
+			wl_callback* callback = wl_display_sync(_display);
+			if(wl_callback_add_listener(callback, &syncListener, this))
+				throw runtime_error("wl_callback_add_listener() failed.");
+			_numSyncEventsOnTheFly++;
+			wl_display_flush(_display);
+
+		}
+		break;
+	case WindowState::FullScreen:
+		if(!isVisible())
+
+			// show the window with appropriate settings
+			show(
+				[](VulkanWindow& w) { /*xdg_toplevel_set_fullscreen(w._xdgTopLevel);*/ },
+				[](VulkanWindow& w) { /*libdecor_frame_unset_maximized(w._libdecorFrame);*/ }
+			);
+
+		else {
+
+			// send callback
+			if(_libdecorFrame)
+				;//libdecor_frame_unset_maximized(_libdecorFrame);
+			else
+				;//xdg_toplevel_set_fullscreen(_xdgTopLevel);
+
+			// send callback
+			wl_callback* callback = wl_display_sync(_display);
+			if(wl_callback_add_listener(callback, &syncListener, this))
+				throw runtime_error("wl_callback_add_listener() failed.");
+			_numSyncEventsOnTheFly++;
+			wl_display_flush(_display);
+
+		}
+		break;
+	default:
+		throw runtime_error("VulkanWindow::setWindowState(): Invalid WindowState value passed as parameter.");
+	}
+	if(wl_display_roundtrip(_display) == -1)
+		throw runtime_error("wl_display_roundtrip() failed.");
 }
 
 #elif defined(USE_PLATFORM_SDL3)
