@@ -207,7 +207,7 @@ static VulkanWindow::KeyCode keyConversionTable[128];
 static wstring utf8toWString(const string& s)
 {
 	// get string lengths
-	int l1 = s.length();  // length() returns number of bytes of the string but number of characters might be lower because it is utf8 string
+	int l1 = int(s.length());  // length() returns number of bytes of the string but number of characters might be lower because it is utf8 string
 	if(l1 == 0)  return {};
 	l1++;  // include null terminating character
 	int l2 = MultiByteToWideChar(CP_UTF8, 0, s.c_str(), l1, NULL, 0);
