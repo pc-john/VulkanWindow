@@ -8,6 +8,7 @@ set(PROJECTS
 	examples/SpinningTriangle
 	tests/MultiWindowTests
 	tests/InputTest
+	tests/NoInitTest
 	tests/StatesTest
 )
 

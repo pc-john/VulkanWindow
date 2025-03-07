@@ -1233,9 +1233,9 @@ void VulkanWindow::destroy() noexcept
 		_hwnd = nullptr;
 	}
 # else
-	assert(_windowClass && "VulkanWindow::destroy(): Window class does not exist. "
-		                   "Did you called VulkanWindow::finalize() prematurely?");
 	if(_hwnd) {
+		assert(_windowClass && "VulkanWindow::destroy(): Window class does not exist. "
+		                       "Did you called VulkanWindow::finalize() prematurely?");
 		if(!DestroyWindow(HWND(_hwnd)))
 			assert(0 && "DestroyWindow(): The function failed.");
 		_hwnd = nullptr;
