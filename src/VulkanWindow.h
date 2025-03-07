@@ -141,6 +141,8 @@ protected:
 
 	// state
 	bool _forcedFrame;
+	unsigned _numSyncEventsOnTheFly = 0;
+	WindowState _windowState = WindowState::Hidden;
 
 	// globals
 	static inline struct wl_display* _display = nullptr;
@@ -163,6 +165,8 @@ protected:
 
 	static inline const std::vector<const char*> _requiredInstanceExtensions =
 		{ "VK_KHR_surface", "VK_KHR_wayland_surface" };
+
+	void show(void (*xdgConfigFunc)(VulkanWindow&), void (*libdecorConfigFunc)(VulkanWindow&));
 
 #elif defined(USE_PLATFORM_SDL3) || defined(USE_PLATFORM_SDL2)
 
@@ -341,6 +345,7 @@ inline VkExtent2D VulkanWindow::surfaceExtent() const  { return _surfaceExtent; 
 inline bool VulkanWindow::isVisible() const  { return _visible; }
 #elif defined(USE_PLATFORM_WAYLAND)
 inline bool VulkanWindow::isVisible() const  { return _xdgSurface != nullptr || _libdecorFrame != nullptr; }
+inline void VulkanWindow::show()  { show([](VulkanWindow&){}, [](VulkanWindow&){}); }
 #endif
 inline const std::string& VulkanWindow::title() const  { return _title; }
 inline void VulkanWindow::setTitle(std::string&& s)  { if(s==_title) return; _title=std::move(s); updateTitle(); }
