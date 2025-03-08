@@ -105,6 +105,17 @@ enum libdecor_error {
 	LIBDECOR_ERROR_COMPOSITOR_INCOMPATIBLE,
 	LIBDECOR_ERROR_INVALID_FRAME_CONFIGURATION,
 };
+enum libdecor_window_state {
+	LIBDECOR_WINDOW_STATE_NONE = 0,
+	LIBDECOR_WINDOW_STATE_ACTIVE = 1 << 0,
+	LIBDECOR_WINDOW_STATE_MAXIMIZED = 1 << 1,
+	LIBDECOR_WINDOW_STATE_FULLSCREEN = 1 << 2,
+	LIBDECOR_WINDOW_STATE_TILED_LEFT = 1 << 3,
+	LIBDECOR_WINDOW_STATE_TILED_RIGHT = 1 << 4,
+	LIBDECOR_WINDOW_STATE_TILED_TOP = 1 << 5,
+	LIBDECOR_WINDOW_STATE_TILED_BOTTOM = 1 << 6,
+	LIBDECOR_WINDOW_STATE_SUSPENDED = 1 << 7,
+};
 struct libdecor_configuration;
 struct libdecor_interface {
 	void (*error)(struct libdecor* context, enum libdecor_error error, const char* message);
@@ -137,9 +148,12 @@ struct libdecor_frame_interface {
 	void (*reserved8)();
 	void (*reserved9)();
 };
-struct libdecor_frame_private_workaround {  // taken from libdecor.c to workaround missing libdecor_frame_set_user_data()
-	// on libdecor 0.1.0 to 0.2.2; libdecor_frame_private stays the same for all mentioned versions for its first 5 members;
-	// libdecor_frame_set_user_data() is expected to come out in the first release after 0.2.2
+struct libdecor_frame_private_workaround {  // taken from libdecor.c to workaround missing libdecor_frame_set_user_data();
+	// libdecor_frame_set_user_data() is already available in the master branch since 2024-01-15, but it is missing
+	// in libdecor 0.1.0 to 0.2.2, e.g. in all libdecor releases as of today (2025-02-27);
+	// it is expected to come out in the first release after 0.2.2;
+	// to workaround it, we use this structure;
+	// libdecor_frame_private stays the same for its first 5 members for all libdecor versions from 0.1.0 to 0.2.2;
 	int ref_count;
 	struct libdecor* context;
 	struct wl_surface* wl_surface;
@@ -147,9 +161,9 @@ struct libdecor_frame_private_workaround {  // taken from libdecor.c to workarou
 	void* user_data;
 	// all following members after user_data omitted
 };
-struct libdecor_frame_workaround {  // taken from libdecor-plugin.h to workaround missing libdecor_frame_set_user_data()
-	// on libdecor 0.1.0 to 0.2.2; libdecor_frame stays the same for all mentioned versions;
-	// libdecor_frame_set_user_data() is expected to come out in the first release after 0.2.2
+struct libdecor_frame_workaround {  // taken from libdecor-plugin.h to workaround missing libdecor_frame_set_user_data();
+	// for more details, see comment in libdecor_frame_private_workaround structure;
+	// libdecor_frame stays the same for libdecor 0.1.0 to 0.2.2, e.g. in all libdecor releases as of today (2025-02-27)
 	struct libdecor_frame_private* priv;
 	struct wl_list link;
 };
@@ -407,6 +421,8 @@ struct Funcs {
 	void (*libdecor_frame_set_fullscreen)(struct libdecor_frame *frame, struct wl_output *output);
 	void (*libdecor_frame_unset_fullscreen)(struct libdecor_frame *frame);
 	void (*libdecor_frame_map)(struct libdecor_frame* frame);
+	bool (*libdecor_configuration_get_window_state)(struct libdecor_configuration* configuration,
+		enum libdecor_window_state* window_state);
 	bool (*libdecor_configuration_get_content_size)(struct libdecor_configuration* configuration,
 		struct libdecor_frame* frame, int* width, int* height);
 	struct libdecor_state* (*libdecor_state_new)(int width, int height);
@@ -955,6 +971,7 @@ void VulkanWindow::init(void* data)
 		reinterpret_cast<void*&>(funcs.libdecor_frame_set_fullscreen) = dlsym(libdecorHandle, "libdecor_frame_set_fullscreen");
 		reinterpret_cast<void*&>(funcs.libdecor_frame_unset_fullscreen) = dlsym(libdecorHandle, "libdecor_frame_unset_fullscreen");
 		reinterpret_cast<void*&>(funcs.libdecor_frame_map)           = dlsym(libdecorHandle, "libdecor_frame_map");
+		reinterpret_cast<void*&>(funcs.libdecor_configuration_get_window_state) = dlsym(libdecorHandle, "libdecor_configuration_get_window_state");
 		reinterpret_cast<void*&>(funcs.libdecor_configuration_get_content_size) = dlsym(libdecorHandle, "libdecor_configuration_get_content_size");
 		reinterpret_cast<void*&>(funcs.libdecor_state_new)           = dlsym(libdecorHandle, "libdecor_state_new");
 		reinterpret_cast<void*&>(funcs.libdecor_frame_commit)        = dlsym(libdecorHandle, "libdecor_frame_commit");
@@ -963,7 +980,8 @@ void VulkanWindow::init(void* data)
 		if(!funcs.libdecor_new || !funcs.libdecor_unref || !funcs.libdecor_frame_unref || !funcs.libdecor_decorate ||
 		   !funcs.libdecor_frame_set_title || !funcs.libdecor_frame_set_minimized || !funcs.libdecor_frame_set_maximized ||
 		   !funcs.libdecor_frame_unset_maximized || !funcs.libdecor_frame_set_fullscreen ||
-		   !funcs.libdecor_frame_unset_fullscreen || !funcs.libdecor_frame_map || !funcs.libdecor_configuration_get_content_size ||
+		   !funcs.libdecor_frame_unset_fullscreen || !funcs.libdecor_frame_map ||
+		   !funcs.libdecor_configuration_get_window_state || !funcs.libdecor_configuration_get_content_size ||
 		   !funcs.libdecor_state_new || !funcs.libdecor_frame_commit || !funcs.libdecor_state_free || !funcs.libdecor_dispatch)
 		{
 			throw runtime_error("Cannot retrieve all function pointers out of libdecor-0.so.");
@@ -3230,6 +3248,19 @@ void VulkanWindowPrivate::libdecorFrameConfigure(libdecor_frame* frame, libdecor
 {
 	VulkanWindowPrivate* w = static_cast<VulkanWindowPrivate*>(data);
 
+	// update window state
+	libdecor_window_state s;
+	if(funcs.libdecor_configuration_get_window_state(config, &s)) {
+		if(s & LIBDECOR_WINDOW_STATE_FULLSCREEN)
+			w->_windowState = WindowState::FullScreen;
+		else if(s & LIBDECOR_WINDOW_STATE_MAXIMIZED)
+			w->_windowState = WindowState::Maximized;
+		else
+			w->_windowState = WindowState::Normal;
+	}
+	else
+		throw runtime_error("libdecor_configuration_get_window_state() failed.");
+
 	// if width or height of the window changed,
 	// schedule swapchain resize and force new frame rendering
 	int width, height;
@@ -3307,6 +3338,10 @@ void VulkanWindowPrivate::libdecorFrameClose(libdecor_frame* frame, void* data)
 		w->hide();
 		VulkanWindow::exitMainLoop();
 	}
+
+	// update window state
+	if(w->_libdecorFrame == nullptr)
+		w->_windowState = WindowState::Hidden;
 }
 
 
