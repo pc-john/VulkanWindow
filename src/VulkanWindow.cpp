@@ -5030,17 +5030,17 @@ void VulkanWindow::setWindowState(WindowState windowState)
 
 			// show the window with appropriate settings
 			show(
-				[](VulkanWindow& w) { /*xdg_toplevel_set_fullscreen(w._xdgTopLevel);*/ },
-				[](VulkanWindow& w) { /*libdecor_frame_unset_maximized(w._libdecorFrame);*/ }
+				[](VulkanWindow& w) { xdg_toplevel_set_fullscreen(w._xdgTopLevel, nullptr); },
+				[](VulkanWindow& w) { funcs.libdecor_frame_set_fullscreen(w._libdecorFrame, nullptr); }
 			);
 
 		else {
 
 			// send callback
 			if(_libdecorFrame)
-				;//libdecor_frame_unset_maximized(_libdecorFrame);
+				funcs.libdecor_frame_set_fullscreen(_libdecorFrame, nullptr);
 			else
-				;//xdg_toplevel_set_fullscreen(_xdgTopLevel);
+				xdg_toplevel_set_fullscreen(_xdgTopLevel, nullptr);
 
 			// send callback
 			wl_callback* callback = wl_display_sync(_display);
