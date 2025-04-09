@@ -954,11 +954,11 @@ void VulkanWindow::init(void* data)
 	if(!_zxdgDecorationManagerV1) {
 
 		// load libdecor library
-		libdecorHandle = dlopen("libdecor-0.so", RTLD_NOW);
+		libdecorHandle = dlopen("libdecor-0.so.0", RTLD_NOW);
 		if(libdecorHandle == nullptr)
 			throw runtime_error("Cannot activate window decorations. There is no support for server-side decorations "
 			                    "in Wayland server (zxdg_decoration_manager_v1 protocol required) and "
-			                    "cannot open libdecor-0.so library for client-side decorations.");
+			                    "cannot open libdecor-0.so.0 library for client-side decorations.");
 
 		// function pointers
 		reinterpret_cast<void*&>(funcs.libdecor_new)                 = dlsym(libdecorHandle, "libdecor_new");

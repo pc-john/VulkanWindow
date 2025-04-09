@@ -67,7 +67,7 @@ macro(VulkanWindowConfigure APP_SOURCES APP_INCLUDES libs defines vulkanWindowDe
 
 			list(APPEND ${APP_SOURCES}  xdg-shell-protocol.c        xdg-decoration-protocol.c)
 			list(APPEND ${APP_INCLUDES} xdg-shell-client-protocol.h xdg-decoration-client-protocol.h)
-			set(${libs} ${${libs}} Wayland::client Wayland::cursor -lrt -lxkbcommon)
+			set(${libs} ${${libs}} Wayland::client Wayland::cursor -lrt -l:libxkbcommon.so.0)
 			set(${defines} ${${defines}} USE_PLATFORM_WAYLAND)
 			set(${vulkanWindowDefines} ${${vulkanWindowDefines}} VK_USE_PLATFORM_WAYLAND_KHR)
 
