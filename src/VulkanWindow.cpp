@@ -56,6 +56,9 @@
 #include <stdexcept>
 #include <iostream>  // for debugging
 
+using namespace std;
+
+
 // xcbcommon types and funcs
 // (we avoid dependency on include xkbcommon/xkbcommon.h to lessen VulkanWindow dependencies)
 #if defined(USE_PLATFORM_XLIB)
@@ -168,8 +171,6 @@ struct libdecor_frame_workaround {  // taken from libdecor-plugin.h to workaroun
 	struct wl_list link;
 };
 #endif
-
-using namespace std;
 
 
 class VulkanWindowPrivate : public VulkanWindow {
@@ -328,6 +329,7 @@ static bool externalDisplayHandle;
 static bool running;  // bool indicating that application is running and it shall not leave main loop
 static VulkanWindowPrivate* windowUnderPointer = nullptr;
 static VulkanWindowPrivate* windowWithKbFocus = nullptr;
+static const char* vulkanWindowTag = "VulkanWindow";
 
 // listeners
 static const wl_registry_listener registryListener{
@@ -1925,6 +1927,9 @@ VkSurfaceKHR VulkanWindow::createInternal(VkInstance instance, VkExtent2D surfac
 	if(_wlSurface == nullptr)
 		throw runtime_error("VulkanWindow: wl_compositor_create_surface() failed.");
 
+	// set tag on surface
+	wl_proxy_set_tag(reinterpret_cast<wl_proxy*>(_wlSurface), &vulkanWindowTag);
+
 	// associate surface with VulkanWindow
 	wl_surface_set_user_data(_wlSurface, this);
 
@@ -3472,6 +3477,11 @@ void VulkanWindowPrivate::seatListenerCapabilities(void* data, wl_seat* seat, ui
 void VulkanWindowPrivate::pointerListenerEnter(void* data, wl_pointer* pointer, uint32_t serial,
                                                wl_surface* surface, wl_fixed_t surface_x, wl_fixed_t surface_y)
 {
+	// ignore foreign surfaces
+	// (this is necessary on some compositors, to name some: gnome-shell on Ubuntu 24.04 + Fedora 41)
+	if(wl_proxy_get_tag(reinterpret_cast<wl_proxy*>(surface)) != &vulkanWindowTag)
+		return;
+
 	// set cursor
 	wl_pointer_set_cursor(pointer, serial, _cursorSurface, _cursorHotspotX, _cursorHotspotY);
 
