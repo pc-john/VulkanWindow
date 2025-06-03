@@ -20,7 +20,7 @@ set(libs Vulkan::Vulkan)
 
 # GUI dependencies
 include(${CMAKE_SOURCE_DIR}/CMakeModules/VulkanWindow.cmake)
-VulkanWindowConfigure(APP_SOURCES APP_INCLUDES libs defines vulkanWindowDefines includes)
+VulkanWindowConfigure(APP_SOURCES APP_INCLUDES libs defines includes)
 
 # executable
 add_shaders("${APP_SHADERS}" APP_SHADER_DEPS)
@@ -30,7 +30,6 @@ add_executable(${APP_NAME} ${APP_SOURCES} ${APP_INCLUDES} ${APP_SHADER_DEPS})
 target_include_directories(${APP_NAME} PRIVATE ${CMAKE_CURRENT_BINARY_DIR} ${CMAKE_SOURCE_DIR}/src ${includes})
 target_compile_definitions(${APP_NAME} PRIVATE ${defines})
 target_link_libraries(${APP_NAME} ${libs})
-set_property(SOURCE ${CMAKE_SOURCE_DIR}/src/VulkanWindow.cpp APPEND PROPERTY COMPILE_DEFINITIONS ${vulkanWindowDefines})
 set_property(TARGET ${APP_NAME} PROPERTY CXX_STANDARD 17)
 
 # copy DLLs (SDL3.dll, SDL2.dll, glfw3.dll, Qt stuff,...)

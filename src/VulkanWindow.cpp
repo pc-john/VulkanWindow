@@ -1,5 +1,5 @@
-#include "VulkanWindow.h"
 #if defined(USE_PLATFORM_WIN32)
+# define VK_USE_PLATFORM_WIN32_KHR
 # ifndef NOMINMAX
 #  define NOMINMAX  // avoid the definition of min and max macros by windows.h
 # endif
@@ -11,9 +11,11 @@
 # include <tchar.h>
 # include <type_traits>
 #elif defined(USE_PLATFORM_XLIB)
+# define VK_USE_PLATFORM_XLIB_KHR
 # include <X11/Xutil.h>
 # include <map>
 #elif defined(USE_PLATFORM_WAYLAND)
+# define VK_USE_PLATFORM_WAYLAND_KHR
 # include "xdg-shell-client-protocol.h"
 # include "xdg-decoration-client-protocol.h"
 # include <wayland-cursor.h>
@@ -51,6 +53,7 @@
 # include <QWheelEvent>
 # include <fstream>
 #endif
+#include "VulkanWindow.h"
 #include <algorithm>
 #include <cassert>
 #include <stdexcept>

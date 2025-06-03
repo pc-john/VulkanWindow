@@ -1,4 +1,4 @@
-macro(VulkanWindowConfigure APP_SOURCES APP_INCLUDES libs defines vulkanWindowDefines includes)
+macro(VulkanWindowConfigure APP_SOURCES APP_INCLUDES libs defines includes)
 
 	# set GUI_TYPE if not already set or if set to "default" string
 	string(TOLOWER "${GUI_TYPE}" guiTypeLowerCased)
@@ -39,7 +39,6 @@ macro(VulkanWindowConfigure APP_SOURCES APP_INCLUDES libs defines vulkanWindowDe
 
 		# configure for Win32
 		set(${defines} ${${defines}} USE_PLATFORM_WIN32)
-		set(${vulkanWindowDefines} ${${vulkanWindowDefines}} VK_USE_PLATFORM_WIN32_KHR)
 
 	elseif("${GUI_TYPE}" STREQUAL "Xlib")
 
@@ -47,7 +46,6 @@ macro(VulkanWindowConfigure APP_SOURCES APP_INCLUDES libs defines vulkanWindowDe
 		find_package(X11 REQUIRED)
 		set(${libs} ${${libs}} X11 xkbcommon)
 		set(${defines} ${${defines}} USE_PLATFORM_XLIB)
-		set(${vulkanWindowDefines} ${${vulkanWindowDefines}} VK_USE_PLATFORM_XLIB_KHR)
 
 	elseif("${GUI_TYPE}" STREQUAL "Wayland")
 
@@ -69,7 +67,6 @@ macro(VulkanWindowConfigure APP_SOURCES APP_INCLUDES libs defines vulkanWindowDe
 			list(APPEND ${APP_INCLUDES} xdg-shell-client-protocol.h xdg-decoration-client-protocol.h)
 			set(${libs} ${${libs}} Wayland::client Wayland::cursor -lrt -l:libxkbcommon.so.0)
 			set(${defines} ${${defines}} USE_PLATFORM_WAYLAND)
-			set(${vulkanWindowDefines} ${${vulkanWindowDefines}} VK_USE_PLATFORM_WAYLAND_KHR)
 
 		else()
 			message(FATAL_ERROR "Not all Wayland variables were detected properly.")
