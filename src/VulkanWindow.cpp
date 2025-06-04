@@ -1445,12 +1445,17 @@ VulkanWindow::VulkanWindow(VulkanWindow&& other) noexcept
 {
 #if defined(USE_PLATFORM_WIN32)
 
-	// move Win32 members
+	// move members
 	_hwnd = other._hwnd;
 	other._hwnd = nullptr;
 	_framePendingState = other._framePendingState;
+	other._framePendingState = FramePendingState::NotPending;
 	_visible = other._visible;
+	other._visible = false;
 	_hiddenWindowFramePending = other._hiddenWindowFramePending;
+	_titleBarLeftButtonDownMsgOnHold = other._titleBarLeftButtonDownMsgOnHold;
+	other._titleBarLeftButtonDownMsgOnHold = false;
+	_titleBarLeftButtonDownPos = other._titleBarLeftButtonDownPos;
 
 	// update pointers to this object
 	if(_hwnd)
@@ -1502,7 +1507,12 @@ VulkanWindow::VulkanWindow(VulkanWindow&& other) noexcept
 	if(_scheduledFrameCallback)
 		wl_callback_set_user_data(_scheduledFrameCallback, this);
 
+	// move members
 	_forcedFrame = other._forcedFrame;
+	_numSyncEventsOnTheFly = other._numSyncEventsOnTheFly;
+	other._numSyncEventsOnTheFly = 0;
+	_windowState = other._windowState;
+	other._windowState = WindowState::Hidden;
 
 	// update pointers to this object
 	if(windowUnderPointer == &other)
@@ -1518,6 +1528,7 @@ VulkanWindow::VulkanWindow(VulkanWindow&& other) noexcept
 	_framePending = other._framePending;
 	_hiddenWindowFramePending = other._hiddenWindowFramePending;
 	_visible = other._visible;
+	other._visible = false;
 	_minimized = other._minimized;
 
 	if(_window != nullptr)
@@ -1537,6 +1548,7 @@ VulkanWindow::VulkanWindow(VulkanWindow&& other) noexcept
 	_framePending = other._framePending;
 	_hiddenWindowFramePending = other._hiddenWindowFramePending;
 	_visible = other._visible;
+	other._visible = false;
 	_minimized = other._minimized;
 
 	// update pointer to this object
@@ -1550,6 +1562,7 @@ VulkanWindow::VulkanWindow(VulkanWindow&& other) noexcept
 	other._window = nullptr;
 	_framePendingState = other._framePendingState;
 	_visible = other._visible;
+	other._visible = false;
 	_minimized = other._minimized;
 
 	// update pointers to this object
@@ -1602,12 +1615,17 @@ VulkanWindow& VulkanWindow::operator=(VulkanWindow&& other) noexcept
 
 #if defined(USE_PLATFORM_WIN32)
 
-	// move Win32 members
+	// move members
 	_hwnd = other._hwnd;
 	other._hwnd = nullptr;
 	_framePendingState = other._framePendingState;
+	other._framePendingState = FramePendingState::NotPending;
 	_visible = other._visible;
+	other._visible = false;
 	_hiddenWindowFramePending = other._hiddenWindowFramePending;
+	_titleBarLeftButtonDownMsgOnHold = other._titleBarLeftButtonDownMsgOnHold;
+	other._titleBarLeftButtonDownMsgOnHold = false;
+	_titleBarLeftButtonDownPos = other._titleBarLeftButtonDownPos;
 
 	// update pointers to this object
 	if(_hwnd)
@@ -1658,7 +1676,13 @@ VulkanWindow& VulkanWindow::operator=(VulkanWindow&& other) noexcept
 	other._scheduledFrameCallback = nullptr;
 	if(_scheduledFrameCallback)
 		wl_callback_set_user_data(_scheduledFrameCallback, this);
+
+	// move members
 	_forcedFrame = other._forcedFrame;
+	_numSyncEventsOnTheFly = other._numSyncEventsOnTheFly;
+	other._numSyncEventsOnTheFly = 0;
+	_windowState = other._windowState;
+	other._windowState = WindowState::Hidden;
 
 	// update pointers to this object
 	if(windowUnderPointer == &other)
@@ -1674,6 +1698,7 @@ VulkanWindow& VulkanWindow::operator=(VulkanWindow&& other) noexcept
 	_framePending = other._framePending;
 	_hiddenWindowFramePending = other._hiddenWindowFramePending;
 	_visible = other._visible;
+	other._visible = false;
 	_minimized = other._minimized;
 
 	if(_window != nullptr)
@@ -1706,6 +1731,7 @@ VulkanWindow& VulkanWindow::operator=(VulkanWindow&& other) noexcept
 	other._window = nullptr;
 	_framePendingState = other._framePendingState;
 	_visible = other._visible;
+	other._visible = false;
 	_minimized = other._minimized;
 
 	// update pointers to this object
@@ -2537,6 +2563,12 @@ LRESULT VulkanWindowPrivate::wndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
 		// mouse move
 		case WM_MOUSEMOVE: {
 			VulkanWindowPrivate* w = reinterpret_cast<VulkanWindowPrivate*>(GetWindowLongPtr(hwnd, 0));
+			if(w->_titleBarLeftButtonDownMsgOnHold) {
+				// workaround for WM_NCLBUTTONDOWN window freeze
+				w->_titleBarLeftButtonDownMsgOnHold = false;
+				DefWindowProcW(hwnd, WM_NCLBUTTONDOWN, HTCAPTION, w->_titleBarLeftButtonDownPos);
+				return DefWindowProcW(hwnd, msg, wParam, lParam);
+			}
 			handleModifiers(w, wParam);
 			handleMouseMove(w, float(GET_X_LPARAM(lParam)), float(GET_Y_LPARAM(lParam)));
 			return 0;
@@ -2556,14 +2588,47 @@ LRESULT VulkanWindowPrivate::wndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
 		// (application freeze for several hundred of milliseconds is workarounded here)
 		case WM_NCLBUTTONDOWN: {
 			// This is a workaround for window freeze for several hundred of milliseconds
-			// if you click on its title bar. The clicking on the title bar
+			// if you left-click on its title bar. The clicking on the title bar
 			// makes execution of DefWindowProc to not return for several hundreds of milliseconds,
 			// making the application frozen for this time period.
-			// Sending extra WM_MOUSEMOVE workarounds the problem.
-			POINT point;
-			GetCursorPos(&point);
-			ScreenToClient(hwnd, &point);
-			PostMessage(hwnd, WM_MOUSEMOVE, 0, point.x | point.y<<16);
+			// We workaround the problem by delaying WM_NCLBUTTONDOWN message until further related mouse event.
+			// Processing both messages at once avoids the freeze.
+			if(wParam == HTCAPTION) {
+				VulkanWindowPrivate* w = reinterpret_cast<VulkanWindowPrivate*>(GetWindowLongPtr(hwnd, 0));
+				w->_titleBarLeftButtonDownMsgOnHold = true;
+				w->_titleBarLeftButtonDownPos = lParam;
+				return 0;
+			}
+			else
+				return DefWindowProcW(hwnd, msg, wParam, lParam);
+		}
+
+		// workaround for WM_NCLBUTTONDOWN window freeze
+		case WM_NCMOUSEMOVE: {
+
+			// if WM_NCLBUTTONDOWN is not on hold, just process the current message
+			VulkanWindowPrivate* w = reinterpret_cast<VulkanWindowPrivate*>(GetWindowLongPtr(hwnd, 0));
+			if(!w->_titleBarLeftButtonDownMsgOnHold)
+				return DefWindowProcW(hwnd, msg, wParam, lParam);
+
+			// skip WM_NCMOUSEMOVE with the same coordinates
+			if(w->_titleBarLeftButtonDownPos == lParam)
+				return 0;
+
+			// process WM_NCLBUTTONDOWN and WM_NCMOUSEMOVE
+			w->_titleBarLeftButtonDownMsgOnHold = false;
+			DefWindowProcW(hwnd, WM_NCLBUTTONDOWN, HTCAPTION, w->_titleBarLeftButtonDownPos);
+			return DefWindowProcW(hwnd, WM_NCMOUSEMOVE, wParam, lParam);
+
+		}
+
+		// workaround for WM_NCLBUTTONDOWN window freeze
+		case WM_NCLBUTTONUP: {
+			VulkanWindowPrivate* w = reinterpret_cast<VulkanWindowPrivate*>(GetWindowLongPtr(hwnd, 0));
+			if(w->_titleBarLeftButtonDownMsgOnHold) {
+				w->_titleBarLeftButtonDownMsgOnHold = false;
+				DefWindowProcW(hwnd, WM_NCLBUTTONDOWN, HTCAPTION, w->_titleBarLeftButtonDownPos);
+			}
 			return DefWindowProcW(hwnd, msg, wParam, lParam);
 		}
 
@@ -2684,6 +2749,9 @@ LRESULT VulkanWindowPrivate::wndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
 
 				// store frame pending state
 				w->_hiddenWindowFramePending = w->_framePendingState == FramePendingState::Pending;
+
+				// cancel WM_NCLBUTTONDOWN hold operation, if active
+				w->_titleBarLeftButtonDownMsgOnHold = false;
 
 				// cancel frame pending state
 				if(w->_framePendingState == FramePendingState::Pending) {
