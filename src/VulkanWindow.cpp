@@ -746,7 +746,7 @@ void VulkanWindow::init()
 				HINSTANCE(_hInstance),  // hInstance
 				LoadIcon(NULL, IDI_APPLICATION),  // hIcon
 				LoadCursor(NULL, IDC_ARROW),  // hCursor
-				NULL,                 // hbrBackground
+				(HBRUSH)(COLOR_WINDOW + 1),  // hbrBackground
 				NULL,                 // lpszMenuName
 				L"VulkanWindow",      // lpszClassName
 				LoadIcon(NULL, IDI_APPLICATION)  // hIconSm
@@ -2495,10 +2495,11 @@ LRESULT VulkanWindowPrivate::wndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
 
 	switch(msg)
 	{
-		// erase background message
-		// (we ignore the message)
+#if 0  // window resize looks more nice with backgroud erasing, so we are not ignoring the message;
+       // The message is sent on window show, resize and move, in general. So, it is not a performance issue.
 		case WM_ERASEBKGND:
 			return 1;  // returning non-zero means that background should be considered erased
+#endif
 
 		// paint the window message
 		// (we render the window content here)
