@@ -227,13 +227,13 @@ void App::init()
 	{
 		VulkanWindow tmp;
 		if(tmp.isVisible())
-			throw runtime_error("VulkanWindow::isVisible() did not returned false immediately after VulkanWindow constructor.");
+			throw runtime_error("VulkanWindow::isVisible() did not return false immediately after VulkanWindow constructor.");
 		tmp.create(instance, vk::Extent2D{800, 600}, appName);
 		if(tmp.isVisible())
-			throw runtime_error("VulkanWindow::isVisible() did not returned false immediately after VulkanWindow::create().");
+			throw runtime_error("VulkanWindow::isVisible() did not return false immediately after VulkanWindow::create().");
 		tmp.hide();
 		if(tmp.isVisible())
-			throw runtime_error("VulkanWindow::isVisible() did not returned false immediately after VulkanWindow::hide().");
+			throw runtime_error("VulkanWindow::isVisible() did not return false immediately after VulkanWindow::hide().");
 	}
 
 	// test for non-initialized window and for move constructors

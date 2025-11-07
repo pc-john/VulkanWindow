@@ -42,6 +42,7 @@
 # include <cmath>
 # include <memory>
 #elif defined(USE_PLATFORM_GLFW)
+# include <vulkan/vulkan.h>  // include Vulkan before GLFW/glfw3.h otherwise some glfw functions are not present
 # define GLFW_INCLUDE_NONE  // do not include OpenGL headers
 # include <GLFW/glfw3.h>
 # include <cmath>
@@ -61,6 +62,53 @@
 
 using namespace std;
 
+
+// global variables
+#if defined(USE_PLATFORM_WIN32)
+struct win32 {
+	static inline void* hInstance = 0;  // void* is used instead of HINSTANCE type to avoid #include <windows.h>
+	static inline uint16_t windowClass = 0;  // uint16_t is used instead of ATOM type to avoid #include <windows.h>
+	static inline const std::vector<const char*> requiredInstanceExtensions =
+		{ "VK_KHR_surface", "VK_KHR_win32_surface" };
+};
+const std::vector<const char*>& VulkanWindow::requiredExtensions()  { return win32::requiredInstanceExtensions; }
+std::vector<const char*>& VulkanWindow::appendRequiredExtensions(std::vector<const char*>& v)  { v.insert(v.end(), win32::requiredInstanceExtensions.begin(), win32::requiredInstanceExtensions.end()); return v; }
+uint32_t VulkanWindow::requiredExtensionCount()  { return uint32_t(win32::requiredInstanceExtensions.size()); }
+const char* const* VulkanWindow::requiredExtensionNames()  { return win32::requiredInstanceExtensions.data(); }
+#elif defined(USE_PLATFORM_XLIB)
+struct xlib {
+	static inline struct _XDisplay* _display = nullptr;  // struct _XDisplay* is used instead of Display* type
+	static inline unsigned long _wmDeleteMessage;  // unsigned long is used for Atom type
+	static inline unsigned long _wmStateProperty;  // unsigned long is used for Atom type
+	static inline unsigned long _netWmName;  // unsigned long is used for Atom type
+	static inline unsigned long _utf8String;  // unsigned long is used for Atom type
+	static inline const std::vector<const char*> _requiredInstanceExtensions =
+		{ "VK_KHR_surface", "VK_KHR_xlib_surface" };
+};
+#elif defined(USE_PLATFORM_WAYLAND)
+struct wayland {
+	static inline struct wl_display* _display = nullptr;
+	static inline struct wl_registry* _registry;
+	static inline struct wl_compositor* _compositor = nullptr;
+	static inline struct xdg_wm_base* _xdgWmBase = nullptr;
+	static inline struct zxdg_decoration_manager_v1* _zxdgDecorationManagerV1 = nullptr;
+	static inline struct libdecor* _libdecorContext = nullptr;
+	static inline struct wl_shm* _shm = nullptr;
+	static inline struct wl_cursor_theme* _cursorTheme = nullptr;
+	static inline struct wl_surface* _cursorSurface = nullptr;
+	static inline int _cursorHotspotX;
+	static inline int _cursorHotspotY;
+	static inline struct wl_seat* _seat = nullptr;
+	static inline struct wl_pointer* _pointer = nullptr;
+	static inline struct wl_keyboard* _keyboard = nullptr;
+	static inline struct xkb_context* _xkbContext = nullptr;
+	static inline struct xkb_state* _xkbState = nullptr;
+	static inline std::bitset<16> _modifiers;
+
+	static inline const std::vector<const char*> _requiredInstanceExtensions =
+		{ "VK_KHR_surface", "VK_KHR_wayland_surface" };
+};
+#endif
 
 // xcbcommon types and funcs
 // (we avoid dependency on include xkbcommon/xkbcommon.h to lessen VulkanWindow dependencies)
@@ -411,6 +459,16 @@ void VulkanWindowPrivate::xdgWmBaseListenerPing(void*, xdg_wm_base* xdg, uint32_
 	xdg_wm_base_pong(xdg, serial);
 };
 
+// make sure all window state changes were processed by Wayland server
+// by waiting on all sync events
+static void waitAllSyncEvents(unsigned& numSyncEventsOnTheFly)
+{
+	// if numSyncEventsOnTheFly is not zero, dispatch Wayland events until it becomes zero
+	while(numSyncEventsOnTheFly != 0)
+		if(wl_display_dispatch(_display) == -1)  // it blocks if there are no events
+			throw runtime_error("wl_display_dispatch() failed.");
+}
+
 // libdecor functions
 struct Funcs {
 	struct libdecor* (*libdecor_new)(struct wl_display* display, const struct libdecor_interface* iface);
@@ -453,8 +511,9 @@ static vector<const char*> sdlRequiredExtensions;
 #endif
 
 
-// GLFW error handling
 #if defined(USE_PLATFORM_GLFW)
+
+// GLFW error handling
 static void throwError(const string& funcName)
 {
 	const char* errorString;
@@ -471,12 +530,22 @@ static void checkError(const string& funcName)
 		                    to_string(errorCode) + ". Error string: " + errorString);
 }
 
+static bool canUpdateSavedGeometry(GLFWwindow* w)
+{
+	if(glfwGetWindowAttrib(w, GLFW_MAXIMIZED))  return false;
+	if(glfwGetWindowAttrib(w, GLFW_ICONIFIED))  return false;
+	if(glfwGetWindowAttrib(w, GLFW_VISIBLE) == GLFW_FALSE)  return false;
+	if(glfwGetWindowMonitor(w) != nullptr)  return false;
+	return true;
+};
+
 // bool indicating that application is running and it shall not leave main loop
 static bool running;
 
 // list of windows waiting for frame rendering
 // (the windows have _framePendingState set to FramePendingState::Pending or TentativePending)
 static vector<VulkanWindow*> framePendingWindows;
+
 #endif
 
 
@@ -730,12 +799,12 @@ void VulkanWindow::init()
 #if defined(USE_PLATFORM_WIN32)
 
 	// handle multiple init attempts
-	if(_windowClass)
+	if(win32::windowClass)
 		return;
 
 	// register window class with the first window
-	_hInstance = GetModuleHandle(NULL);
-	_windowClass =
+	win32::hInstance = GetModuleHandle(NULL);
+	win32::windowClass =
 		RegisterClassExW(
 			&(const WNDCLASSEXW&)WNDCLASSEXW{
 				sizeof(WNDCLASSEXW),  // cbSize
@@ -743,7 +812,7 @@ void VulkanWindow::init()
 				VulkanWindowPrivate::wndProc,  // lpfnWndProc
 				0,                    // cbClsExtra
 				sizeof(LONG_PTR),     // cbWndExtra
-				HINSTANCE(_hInstance),  // hInstance
+				HINSTANCE(win32::hInstance),  // hInstance
 				LoadIcon(NULL, IDI_APPLICATION),  // hIcon
 				LoadCursor(NULL, IDC_ARROW),  // hCursor
 				(HBRUSH)(COLOR_WINDOW + 1),  // hbrBackground
@@ -752,7 +821,7 @@ void VulkanWindow::init()
 				LoadIcon(NULL, IDI_APPLICATION)  // hIconSm
 			}
 		);
-	if(!_windowClass)
+	if(!win32::windowClass)
 		throw runtime_error("Cannot register window class.");
 
 	// init keyboard stuff
@@ -1114,14 +1183,14 @@ void VulkanWindow::finalize() noexcept
 	// release resources
 	// (do not throw in the finalization code,
 	// so ignore the errors in release builds and assert in debug builds)
-	if(_windowClass) {
+	if(win32::windowClass) {
 # ifdef NDEBUG
-		UnregisterClassW(LPWSTR(MAKEINTATOM(_windowClass)), HINSTANCE(_hInstance));
+		UnregisterClassW(LPWSTR(MAKEINTATOM(win32::windowClass)), HINSTANCE(win32::hInstance));
 # else
-		if(!UnregisterClassW(LPWSTR(MAKEINTATOM(_windowClass)), HINSTANCE(_hInstance)))
+		if(!UnregisterClassW(LPWSTR(MAKEINTATOM(win32::windowClass)), HINSTANCE(win32::hInstance)))
 			assert(0 && "UnregisterClass(): The function failed.");
 # endif
-		_windowClass = 0;
+		win32::windowClass = 0;
 	}
 
 #elif defined(USE_PLATFORM_XLIB)
@@ -1242,6 +1311,10 @@ VulkanWindow::~VulkanWindow()
 
 void VulkanWindow::destroy() noexcept
 {
+	// skip not created windows
+	if(_any.handle == nullptr)
+		return;
+
 	// destroy surface except Qt platform
 #if !defined(USE_PLATFORM_QT)
 	if(_instance && _surface)
@@ -1267,28 +1340,23 @@ void VulkanWindow::destroy() noexcept
 	// (do not throw in destructor, so ignore the errors in release builds
 	// and assert in debug builds)
 # ifdef NDEBUG
-	if(_hwnd) {
-		DestroyWindow(HWND(_hwnd));
-		_hwnd = nullptr;
-	}
+	DestroyWindow(HWND(_win32.hwnd));
+	_win32.hwnd = nullptr;
 # else
-	if(_hwnd) {
-		assert(_windowClass && "VulkanWindow::destroy(): Window class does not exist. "
-		                       "Did you called VulkanWindow::finalize() prematurely?");
-		if(!DestroyWindow(HWND(_hwnd)))
-			assert(0 && "DestroyWindow(): The function failed.");
-		_hwnd = nullptr;
-	}
+	_win32.visible = false;
+	assert(win32::windowClass && "VulkanWindow::destroy(): Window class does not exist. "
+	                             "Did you called VulkanWindow::finalize() prematurely?");
+	if(!DestroyWindow(HWND(_win32.hwnd)))
+		assert(0 && "DestroyWindow(): The function failed.");
+	_win32.hwnd = nullptr;
 # endif
 
 #elif defined(USE_PLATFORM_XLIB)
 
 	// release resources
-	if(_window) {
-		vulkanWindowMap.erase(_window);
-		XDestroyWindow(_display, _window);
-		_window = 0;
-	}
+	vulkanWindowMap.erase(_window);
+	XDestroyWindow(_display, _window);
+	_window = 0;
 
 #elif defined(USE_PLATFORM_WAYLAND)
 
@@ -1327,115 +1395,104 @@ void VulkanWindow::destroy() noexcept
 
 #elif defined(USE_PLATFORM_SDL3)
 
-	if(_window) {
+	// get windowID
+	auto windowID = SDL_GetWindowID(_sdl.window);
+	assert(windowID != 0 && "SDL_GetWindowID(): The function failed.");
 
-		// get windowID
-		auto windowID = SDL_GetWindowID(_window);
-		assert(windowID != 0 && "SDL_GetWindowID(): The function failed.");
+	// destroy window
+	SDL_DestroyWindow(_sdl.window);
+	_sdl.window = nullptr;
 
-		// destroy window
-		SDL_DestroyWindow(_window);
-		_window = nullptr;
-
-		// get all events in the queue
-		SDL_PumpEvents();
-		vector<SDL_Event> buf(16);
-		while(true) {
-			int num = SDL_PeepEvents(&buf[buf.size()-16], 16, SDL_GETEVENT, SDL_EVENT_FIRST, SDL_EVENT_LAST);
-			if(num < 0) {
-				assert(0 && "SDL_PeepEvents(): The function failed.");
-				break;
-			}
-			if(num == 16) {
-				buf.resize(buf.size() + 16);
-				continue;
-			}
-			buf.resize(buf.size() - 16 + num);
+	// get all events in the queue
+	SDL_PumpEvents();
+	vector<SDL_Event> buf(16);
+	while(true) {
+		int num = SDL_PeepEvents(&buf[buf.size()-16], 16, SDL_GETEVENT, SDL_EVENT_FIRST, SDL_EVENT_LAST);
+		if(num < 0) {
+			assert(0 && "SDL_PeepEvents(): The function failed.");
 			break;
-		};
-
-		// fill the queue again
-		// while skipping all events of deleted window
-		// (we need to skip those that are processed in VulkanWindow::mainLoop() because they might cause SIGSEGV)
-		for(SDL_Event& event : buf) {
-			if(event.type >= SDL_EVENT_WINDOW_FIRST && event.type <= SDL_EVENT_WINDOW_LAST)
-				if(event.window.windowID == windowID)
-					continue;
-			int num = SDL_PeepEvents(&event, 1, SDL_ADDEVENT, SDL_EVENT_FIRST, SDL_EVENT_LAST);
-			if(num != 1)
-				assert(0 && "SDL_PeepEvents(): The function failed.");
 		}
+		if(num == 16) {
+			buf.resize(buf.size() + 16);
+			continue;
+		}
+		buf.resize(buf.size() - 16 + num);
+		break;
+	};
+
+	// fill the queue again
+	// while skipping all events of deleted window
+	// (we need to skip those that are processed in VulkanWindow::mainLoop() because they might cause SIGSEGV)
+	for(SDL_Event& event : buf) {
+		if(event.type >= SDL_EVENT_WINDOW_FIRST && event.type <= SDL_EVENT_WINDOW_LAST)
+			if(event.window.windowID == windowID)
+				continue;
+		int num = SDL_PeepEvents(&event, 1, SDL_ADDEVENT, SDL_EVENT_FIRST, SDL_EVENT_LAST);
+		if(num != 1)
+			assert(0 && "SDL_PeepEvents(): The function failed.");
 	}
 
 #elif defined(USE_PLATFORM_SDL2)
 
-	if(_window) {
+	// get windowID
+	auto windowID = SDL_GetWindowID(_sdl.window);
+	assert(windowID != 0 && "SDL_GetWindowID(): The function failed.");
 
-		// get windowID
-		auto windowID = SDL_GetWindowID(_window);
-		assert(windowID != 0 && "SDL_GetWindowID(): The function failed.");
+	// destroy window
+	SDL_DestroyWindow(_sdl.window);
+	_sdl.window = nullptr;
 
-		// destroy window
-		SDL_DestroyWindow(_window);
-		_window = nullptr;
-
-		// get all events in the queue
-		SDL_PumpEvents();
-		vector<SDL_Event> buf(16);
-		while(true) {
-			int num = SDL_PeepEvents(&buf[buf.size()-16], 16, SDL_GETEVENT, SDL_FIRSTEVENT, SDL_LASTEVENT);
-			if(num < 0) {
-				assert(0 && "SDL_PeepEvents(): The function failed.");
-				break;
-			}
-			if(num == 16) {
-				buf.resize(buf.size() + 16);
-				continue;
-			}
-			buf.resize(buf.size() - 16 + num);
+	// get all events in the queue
+	SDL_PumpEvents();
+	vector<SDL_Event> buf(16);
+	while(true) {
+		int num = SDL_PeepEvents(&buf[buf.size()-16], 16, SDL_GETEVENT, SDL_FIRSTEVENT, SDL_LASTEVENT);
+		if(num < 0) {
+			assert(0 && "SDL_PeepEvents(): The function failed.");
 			break;
-		};
-
-		// fill the queue again
-		// while skipping all events of deleted window
-		// (we need to skip those that are processed in VulkanWindow::mainLoop() because they might cause SIGSEGV)
-		for(SDL_Event& event : buf) {
-			if(event.type == SDL_WINDOWEVENT)
-				if(event.window.windowID == windowID)
-					continue;
-			int num = SDL_PeepEvents(&event, 1, SDL_ADDEVENT, SDL_FIRSTEVENT, SDL_LASTEVENT);
-			if(num != 1)
-				assert(0 && "SDL_PeepEvents(): The function failed.");
 		}
+		if(num == 16) {
+			buf.resize(buf.size() + 16);
+			continue;
+		}
+		buf.resize(buf.size() - 16 + num);
+		break;
+	};
+
+	// fill the queue again
+	// while skipping all events of deleted window
+	// (we need to skip those that are processed in VulkanWindow::mainLoop() because they might cause SIGSEGV)
+	for(SDL_Event& event : buf) {
+		if(event.type == SDL_WINDOWEVENT)
+			if(event.window.windowID == windowID)
+				continue;
+		int num = SDL_PeepEvents(&event, 1, SDL_ADDEVENT, SDL_FIRSTEVENT, SDL_LASTEVENT);
+		if(num != 1)
+			assert(0 && "SDL_PeepEvents(): The function failed.");
 	}
 
 #elif defined(USE_PLATFORM_GLFW)
 
-	if(_window) {
+	// destroy window
+	glfwDestroyWindow(_glfw.window);
+	_glfw.window = nullptr;
 
-		// destroy window
-		glfwDestroyWindow(_window);
-		_window = nullptr;
-
-		// cancel pending frame, if any
-		if(_framePendingState != FramePendingState::NotPending) {
-			_framePendingState = FramePendingState::NotPending;
-			for(size_t i=0; i<framePendingWindows.size(); i++)
-				if(framePendingWindows[i] == this) {
-					framePendingWindows[i] = framePendingWindows.back();
-					framePendingWindows.pop_back();
-					break;
-				}
-		}
+	// cancel pending frame, if any
+	if(_glfw.framePendingState != FramePendingState::NotPending) {
+		_glfw.framePendingState = FramePendingState::NotPending;
+		for(size_t i=0; i<framePendingWindows.size(); i++)
+			if(framePendingWindows[i] == this) {
+				framePendingWindows[i] = framePendingWindows.back();
+				framePendingWindows.pop_back();
+				break;
+			}
 	}
 
 #elif defined(USE_PLATFORM_QT)
 
 	// delete QtRenderingWindow
-	if(_window) {
-		delete _window;
-		_window = nullptr;
-	}
+	delete _qt.window;
+	_qt.window = nullptr;
 
 #endif
 }
@@ -1446,20 +1503,12 @@ VulkanWindow::VulkanWindow(VulkanWindow&& other) noexcept
 #if defined(USE_PLATFORM_WIN32)
 
 	// move members
-	_hwnd = other._hwnd;
-	other._hwnd = nullptr;
-	_framePendingState = other._framePendingState;
-	other._framePendingState = FramePendingState::NotPending;
-	_visible = other._visible;
-	other._visible = false;
-	_hiddenWindowFramePending = other._hiddenWindowFramePending;
-	_titleBarLeftButtonDownMsgOnHold = other._titleBarLeftButtonDownMsgOnHold;
-	other._titleBarLeftButtonDownMsgOnHold = false;
-	_titleBarLeftButtonDownPos = other._titleBarLeftButtonDownPos;
+	_win32 = other._win32;
+	other._win32.hwnd = nullptr;
 
 	// update pointers to this object
-	if(_hwnd)
-		SetWindowLongPtr(HWND(_hwnd), 0, LONG_PTR(this));
+	if(_win32.hwnd)
+		SetWindowLongPtr(HWND(_win32.hwnd), 0, LONG_PTR(this));
 	for(VulkanWindow*& w : framePendingWindows)
 		if(w == &other) {
 			w = this;
@@ -1483,36 +1532,28 @@ VulkanWindow::VulkanWindow(VulkanWindow&& other) noexcept
 
 #elif defined(USE_PLATFORM_WAYLAND)
 
-	// move Wayland members
-	_wlSurface = other._wlSurface;
-	other._wlSurface = nullptr;
-	if(_wlSurface)
-		wl_surface_set_user_data(_wlSurface, this);
-	_xdgSurface = other._xdgSurface;
-	other._xdgSurface = nullptr;
-	if(_xdgSurface)
-		xdg_surface_set_user_data(_xdgSurface, this);
-	_xdgTopLevel = other._xdgTopLevel;
-	other._xdgTopLevel = nullptr;
-	if(_xdgTopLevel)
-		xdg_toplevel_set_user_data(_xdgTopLevel, this);
-	_decoration = other._decoration;
-	other._decoration = nullptr;
-	_libdecorFrame = other._libdecorFrame;
-	other._libdecorFrame = nullptr;
-	if(_libdecorFrame)
-		funcs.libdecor_frame_set_user_data(_libdecorFrame, this);
-	_scheduledFrameCallback = other._scheduledFrameCallback;
-	other._scheduledFrameCallback = nullptr;
-	if(_scheduledFrameCallback)
-		wl_callback_set_user_data(_scheduledFrameCallback, this);
+	// process all pending sync events
+	// because they are delivered to the current object address
+	waitAllSyncEvents(_wayland.numSyncEventsOnTheFly);
 
-	// move members
-	_forcedFrame = other._forcedFrame;
-	_numSyncEventsOnTheFly = other._numSyncEventsOnTheFly;
-	other._numSyncEventsOnTheFly = 0;
-	_windowState = other._windowState;
-	other._windowState = WindowState::Hidden;
+	// move Wayland members
+	_wayland = other._wayland;
+	if(_wayland.wlSurface)
+		wl_surface_set_user_data(_wayland.wlSurface, this);
+	if(_wayland.xdgSurface)
+		xdg_surface_set_user_data(_wayland.xdgSurface, this);
+	if(_wayland.xdgTopLevel)
+		xdg_toplevel_set_user_data(_wayland.xdgTopLevel, this);
+	if(_wayland.libdecorFrame)
+		funcs.libdecor_frame_set_user_data(_wayland.libdecorFrame, this);
+	if(_wayland.scheduledFrameCallback)
+		wl_callback_set_user_data(_wayland.scheduledFrameCallback, this);
+	other._wayland.wlSurface = nullptr;
+	other._wayland.xdgSurface = nullptr;
+	other._wayland.xdgTopLevel = nullptr;
+	other._wayland.decoration = nullptr;
+	other._wayland.libdecorFrame = nullptr;
+	other._wayland.scheduledFrameCallback = nullptr;
 
 	// update pointers to this object
 	if(windowUnderPointer == &other)
@@ -1523,18 +1564,13 @@ VulkanWindow::VulkanWindow(VulkanWindow&& other) noexcept
 #elif defined(USE_PLATFORM_SDL3)
 
 	// move SDL members
-	_window = other._window;
-	other._window = nullptr;
-	_framePending = other._framePending;
-	_hiddenWindowFramePending = other._hiddenWindowFramePending;
-	_visible = other._visible;
-	other._visible = false;
-	_minimized = other._minimized;
+	_sdl = other._sdl;
+	other._sdl.window = nullptr;
 
-	if(_window != nullptr)
+	if(_sdl.window != nullptr)
 	{
 		// update pointer to this object
-		SDL_PropertiesID props = SDL_GetWindowProperties(_window);
+		SDL_PropertiesID props = SDL_GetWindowProperties(_sdl.window);
 		assert(props != 0 && "VulkanWindow: SDL_GetWindowProperties() function failed while updating VulkanWindow pointer.");
 		if(!SDL_SetPointerProperty(props, windowPointerName, this))
 			assert(0 && "VulkanWindow: SDL_SetPointerProperty() function failed while updating VulkanWindow pointer.");
@@ -1543,31 +1579,22 @@ VulkanWindow::VulkanWindow(VulkanWindow&& other) noexcept
 #elif defined(USE_PLATFORM_SDL2)
 
 	// move SDL members
-	_window = other._window;
-	other._window = nullptr;
-	_framePending = other._framePending;
-	_hiddenWindowFramePending = other._hiddenWindowFramePending;
-	_visible = other._visible;
-	other._visible = false;
-	_minimized = other._minimized;
+	_sdl = other._sdl;
+	other._sdl.window = nullptr;
 
 	// update pointer to this object
-	if(_window)
-		SDL_SetWindowData(_window, windowPointerName, this);
+	if(_sdl.window)
+		SDL_SetWindowData(_sdl.window, windowPointerName, this);
 
 #elif defined(USE_PLATFORM_GLFW)
 
 	// move GLFW members
-	_window = other._window;
-	other._window = nullptr;
-	_framePendingState = other._framePendingState;
-	_visible = other._visible;
-	other._visible = false;
-	_minimized = other._minimized;
+	_glfw = other._glfw;
+	other._glfw.window = nullptr;
 
 	// update pointers to this object
-	if(_window)
-		glfwSetWindowUserPointer(_window, this);
+	if(_glfw.window)
+		glfwSetWindowUserPointer(_glfw.window, this);
 	for(VulkanWindow*& w : framePendingWindows)
 		if(w == &other) {
 			w = this;
@@ -1577,10 +1604,10 @@ VulkanWindow::VulkanWindow(VulkanWindow&& other) noexcept
 #elif defined(USE_PLATFORM_QT)
 
 	// move Qt members
-	_window = other._window;
-	if(_window) {
-		other._window = nullptr;
-		static_cast<QtRenderingWindow*>(_window)->vulkanWindow = this;
+	_qt = other._qt;
+	if(_qt.window) {
+		other._qt.window = nullptr;
+		static_cast<QtRenderingWindow*>(_qt.window)->vulkanWindow = this;
 	}
 
 #endif
@@ -1616,20 +1643,12 @@ VulkanWindow& VulkanWindow::operator=(VulkanWindow&& other) noexcept
 #if defined(USE_PLATFORM_WIN32)
 
 	// move members
-	_hwnd = other._hwnd;
-	other._hwnd = nullptr;
-	_framePendingState = other._framePendingState;
-	other._framePendingState = FramePendingState::NotPending;
-	_visible = other._visible;
-	other._visible = false;
-	_hiddenWindowFramePending = other._hiddenWindowFramePending;
-	_titleBarLeftButtonDownMsgOnHold = other._titleBarLeftButtonDownMsgOnHold;
-	other._titleBarLeftButtonDownMsgOnHold = false;
-	_titleBarLeftButtonDownPos = other._titleBarLeftButtonDownPos;
+	_win32 = other._win32;
+	other._win32.hwnd = nullptr;
 
 	// update pointers to this object
-	if(_hwnd)
-		SetWindowLongPtr(HWND(_hwnd), 0, LONG_PTR(this));
+	if(_win32.hwnd)
+		SetWindowLongPtr(HWND(_win32.hwnd), 0, LONG_PTR(this));
 	for(VulkanWindow*& w : framePendingWindows)
 		if(w == &other) {
 			w = this;
@@ -1653,36 +1672,28 @@ VulkanWindow& VulkanWindow::operator=(VulkanWindow&& other) noexcept
 
 #elif defined(USE_PLATFORM_WAYLAND)
 
-	// move Wayland members
-	_wlSurface = other._wlSurface;
-	other._wlSurface = nullptr;
-	if(_wlSurface)
-		wl_surface_set_user_data(_wlSurface, this);
-	_xdgSurface = other._xdgSurface;
-	other._xdgSurface = nullptr;
-	if(_xdgSurface)
-		xdg_surface_set_user_data(_xdgSurface, this);
-	_xdgTopLevel = other._xdgTopLevel;
-	other._xdgTopLevel = nullptr;
-	if(_xdgTopLevel)
-		xdg_toplevel_set_user_data(_xdgTopLevel, this);
-	_decoration = other._decoration;
-	other._decoration = nullptr;
-	_libdecorFrame = other._libdecorFrame;
-	other._libdecorFrame = nullptr;
-	if(_libdecorFrame)
-		funcs.libdecor_frame_set_user_data(_libdecorFrame, this);
-	_scheduledFrameCallback = other._scheduledFrameCallback;
-	other._scheduledFrameCallback = nullptr;
-	if(_scheduledFrameCallback)
-		wl_callback_set_user_data(_scheduledFrameCallback, this);
+	// process all pending sync events
+	// because they are delivered to the current object address
+	waitAllSyncEvents(_wayland.numSyncEventsOnTheFly);
 
-	// move members
-	_forcedFrame = other._forcedFrame;
-	_numSyncEventsOnTheFly = other._numSyncEventsOnTheFly;
-	other._numSyncEventsOnTheFly = 0;
-	_windowState = other._windowState;
-	other._windowState = WindowState::Hidden;
+	// move Wayland members
+	_wayland = other._wayland;
+	if(_wayland.wlSurface)
+		wl_surface_set_user_data(_wayland.wlSurface, this);
+	if(_wayland.xdgSurface)
+		xdg_surface_set_user_data(_wayland.xdgSurface, this);
+	if(_wayland.xdgTopLevel)
+		xdg_toplevel_set_user_data(_wayland.xdgTopLevel, this);
+	if(_wayland.libdecorFrame)
+		funcs.libdecor_frame_set_user_data(_wayland.libdecorFrame, this);
+	if(_wayland.scheduledFrameCallback)
+		wl_callback_set_user_data(_wayland.scheduledFrameCallback, this);
+	other._wayland.wlSurface = nullptr;
+	other._wayland.xdgSurface = nullptr;
+	other._wayland.xdgTopLevel = nullptr;
+	other._wayland.decoration = nullptr;
+	other._wayland.libdecorFrame = nullptr;
+	other._wayland.scheduledFrameCallback = nullptr;
 
 	// update pointers to this object
 	if(windowUnderPointer == &other)
@@ -1693,18 +1704,13 @@ VulkanWindow& VulkanWindow::operator=(VulkanWindow&& other) noexcept
 #elif defined(USE_PLATFORM_SDL3)
 
 	// move SDL members
-	_window = other._window;
-	other._window = nullptr;
-	_framePending = other._framePending;
-	_hiddenWindowFramePending = other._hiddenWindowFramePending;
-	_visible = other._visible;
-	other._visible = false;
-	_minimized = other._minimized;
+	_sdl = other._sdl;
+	other._sdl.window = nullptr;
 
-	if(_window != nullptr)
+	if(_sdl.window != nullptr)
 	{
 		// set pointer to this
-		SDL_PropertiesID props = SDL_GetWindowProperties(_window);
+		SDL_PropertiesID props = SDL_GetWindowProperties(_sdl.window);
 		assert(props != 0 && "VulkanWindow: SDL_GetWindowProperties() function failed while updating VulkanWindow pointer.");
 		if(!SDL_SetPointerProperty(props, windowPointerName, this))
 			assert(0 && "VulkanWindow: SDL_SetPointerProperty() function failed while updating VulkanWindow pointer.");
@@ -1713,30 +1719,22 @@ VulkanWindow& VulkanWindow::operator=(VulkanWindow&& other) noexcept
 #elif defined(USE_PLATFORM_SDL2)
 
 	// move SDL members
-	_window = other._window;
-	other._window = nullptr;
-	_framePending = other._framePending;
-	_hiddenWindowFramePending = other._hiddenWindowFramePending;
-	_visible = other._visible;
-	_minimized = other._minimized;
+	_sdl = other._sdl;
+	other._sdl.window = nullptr;
 
 	// set pointer to this
-	if(_window)
-		SDL_SetWindowData(_window, windowPointerName, this);
+	if(_sdl.window)
+		SDL_SetWindowData(_sdl.window, windowPointerName, this);
 
 #elif defined(USE_PLATFORM_GLFW)
 
 	// move GLFW members
-	_window = other._window;
-	other._window = nullptr;
-	_framePendingState = other._framePendingState;
-	_visible = other._visible;
-	other._visible = false;
-	_minimized = other._minimized;
+	_glfw = other._glfw;
+	other._glfw.window = nullptr;
 
 	// update pointers to this object
-	if(_window)
-		glfwSetWindowUserPointer(_window, this);
+	if(_glfw.window)
+		glfwSetWindowUserPointer(_glfw.window, this);
 	for(VulkanWindow*& w : framePendingWindows)
 		if(w == &other) {
 			w = this;
@@ -1746,10 +1744,10 @@ VulkanWindow& VulkanWindow::operator=(VulkanWindow&& other) noexcept
 #elif defined(USE_PLATFORM_QT)
 
 	// move Qt members
-	_window = other._window;
-	if(_window) {
-		other._window = nullptr;
-		static_cast<QtRenderingWindow*>(_window)->vulkanWindow = this;
+	_qt = other._qt;
+	if(_qt.window) {
+		other._qt.window = nullptr;
+		static_cast<QtRenderingWindow*>(_qt.window)->vulkanWindow = this;
 	}
 
 #endif
@@ -1779,19 +1777,6 @@ VulkanWindow& VulkanWindow::operator=(VulkanWindow&& other) noexcept
 }
 
 
-VkSurfaceKHR VulkanWindow::create(VkInstance instance, VkExtent2D surfaceExtent, string&& title,
-                                  PFN_vkGetInstanceProcAddr getInstanceProcAddr)
-{
-	// destroy any previous window data
-	// (this makes calling create() multiple times safe operation)
-	destroy();
-
-	_title = move(title);
-
-	return createInternal(instance, surfaceExtent, getInstanceProcAddr);
-}
-
-
 VkSurfaceKHR VulkanWindow::create(VkInstance instance, VkExtent2D surfaceExtent, const string& title,
                                   PFN_vkGetInstanceProcAddr getInstanceProcAddr)
 {
@@ -1811,7 +1796,7 @@ VkSurfaceKHR VulkanWindow::createInternal(VkInstance instance, VkExtent2D surfac
 	// asserts for valid usage
 	assert(instance && "The parameter instance must not be null.");
 #if defined(USE_PLATFORM_WIN32)
-	assert(_windowClass && "VulkanWindow class was not initialized. Call VulkanWindow::init() before VulkanWindow::create().");
+	assert(win32::windowClass && "VulkanWindow class was not initialized. Call VulkanWindow::init() before VulkanWindow::create().");
 #elif defined(USE_PLATFORM_XLIB) || defined(USE_PLATFORM_WAYLAND)
 	assert(_display && "VulkanWindow class was not initialized. Call VulkanWindow::init() before VulkanWindow::create().");
 #elif defined(USE_PLATFORM_SDL3) || defined(USE_PLATFORM_SDL2)
@@ -1838,26 +1823,27 @@ VkSurfaceKHR VulkanWindow::createInternal(VkInstance instance, VkExtent2D surfac
 #if defined(USE_PLATFORM_WIN32)
 
 	// init variables
-	_framePendingState = FramePendingState::NotPending;
-	_visible = false;
-	_hiddenWindowFramePending = false;
+	_win32.framePendingState = FramePendingState::NotPending;
+	_win32.visible = false;
+	_win32.hiddenWindowFramePending = false;
+	_win32.titleBarLeftButtonDownMsgOnHold = false;
 
 	// create window
-	_hwnd =
+	_win32.hwnd =
 		CreateWindowExW(
 			WS_EX_CLIENTEDGE,  // dwExStyle
-			LPWSTR(MAKEINTATOM(_windowClass)),  // lpClassName
+			LPWSTR(MAKEINTATOM(win32::windowClass)),  // lpClassName
 			utf8toWString(_title).c_str(),  // lpWindowName
 			WS_OVERLAPPEDWINDOW,  // dwStyle
 			CW_USEDEFAULT, CW_USEDEFAULT,  // x,y
 			surfaceExtent.width, surfaceExtent.height,  // width, height
-			NULL, NULL, HINSTANCE(_hInstance), NULL  // hWndParent, hMenu, hInstance, lpParam
+			NULL, NULL, HINSTANCE(win32::hInstance), NULL  // hWndParent, hMenu, hInstance, lpParam
 		);
-	if(_hwnd == NULL)
+	if(_win32.hwnd == NULL)
 		throw runtime_error("VulkanWindow: Cannot create window. The function CreateWindowEx() failed.");
 
 	// store this pointer with the window data
-	SetWindowLongPtr(HWND(_hwnd), 0, LONG_PTR(this));
+	SetWindowLongPtr(HWND(_win32.hwnd), 0, LONG_PTR(this));
 
 	// create surface
 	PFN_vkCreateWin32SurfaceKHR vulkanCreateWin32SurfaceKHR =
@@ -1871,8 +1857,8 @@ VkSurfaceKHR VulkanWindow::createInternal(VkInstance instance, VkExtent2D surfac
 				VK_STRUCTURE_TYPE_WIN32_SURFACE_CREATE_INFO_KHR,  // sType
 				nullptr,  // pNext
 				0,  // flags
-				HINSTANCE(_hInstance),  // hinstance
-				HWND(_hwnd)  // hwnd
+				HINSTANCE(win32::hInstance),  // hinstance
+				HWND(_win32.hwnd)  // hwnd
 			},
 			nullptr,  // pAllocator
 			reinterpret_cast<VkSurfaceKHR*>(&_surface)  // pSurface
@@ -1949,18 +1935,24 @@ VkSurfaceKHR VulkanWindow::createInternal(VkInstance instance, VkExtent2D surfac
 #elif defined(USE_PLATFORM_WAYLAND)
 
 	// init variables
-	_forcedFrame = false;
+	_wayland.forcedFrame = false;
+	_wayland.xdgSurface = nullptr;
+	_wayland.xdgTopLevel = nullptr;
+	_wayland.decoration = nullptr;
+	_wayland.libdecorFrame = nullptr;
+	_wayland.scheduledFrameCallback = nullptr;
+	_wayland.windowState = WindowState::Hidden;
 
 	// create wl surface
-	_wlSurface = wl_compositor_create_surface(_compositor);
-	if(_wlSurface == nullptr)
+	_wayland.wlSurface = wl_compositor_create_surface(_compositor);
+	if(_wayland.wlSurface == nullptr)
 		throw runtime_error("VulkanWindow: wl_compositor_create_surface() failed.");
 
 	// set tag on surface
-	wl_proxy_set_tag(reinterpret_cast<wl_proxy*>(_wlSurface), &vulkanWindowTag);
+	wl_proxy_set_tag(reinterpret_cast<wl_proxy*>(_wayland.wlSurface), &vulkanWindowTag);
 
 	// associate surface with VulkanWindow
-	wl_surface_set_user_data(_wlSurface, this);
+	wl_surface_set_user_data(_wayland.wlSurface, this);
 
 	// create surface
 	PFN_vkCreateWaylandSurfaceKHR vulkanCreateWaylandSurfaceKHR =
@@ -1975,7 +1967,7 @@ VkSurfaceKHR VulkanWindow::createInternal(VkInstance instance, VkExtent2D surfac
 				nullptr,  // pNext
 				0,  // flags
 				_display,  // display
-				_wlSurface  // surface
+				_wayland.wlSurface  // surface
 			},
 			nullptr,  // pAllocator
 			reinterpret_cast<VkSurfaceKHR*>(&_surface)  // pSurface
@@ -1989,29 +1981,29 @@ VkSurfaceKHR VulkanWindow::createInternal(VkInstance instance, VkExtent2D surfac
 #elif defined(USE_PLATFORM_SDL3)
 
 	// init variables
-	_framePending = true;
-	_hiddenWindowFramePending = false;
-	_visible = false;
-	_minimized = false;
+	_sdl.framePending = true;
+	_sdl.hiddenWindowFramePending = false;
+	_sdl.visible = false;
+	_sdl.minimized = false;
 
 	// create Vulkan window
-	_window = SDL_CreateWindow(
+	_sdl.window = SDL_CreateWindow(
 		_title.c_str(),  // title
 		surfaceExtent.width, surfaceExtent.height,  // w,h
 		SDL_WINDOW_VULKAN | SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIDDEN  // flags
 	);
-	if(_window == nullptr)
+	if(_sdl.window == nullptr)
 		throw runtime_error(string("VulkanWindow: SDL_CreateWindow() function failed. Error details: ") + SDL_GetError());
 
 	// set pointer to this
-	SDL_PropertiesID props = SDL_GetWindowProperties(_window);
+	SDL_PropertiesID props = SDL_GetWindowProperties(_sdl.window);
 	if(props == 0)
 		throw runtime_error(string("VulkanWindow: SDL_GetWindowProperties() function failed. Error details: ") + SDL_GetError());
 	if(!SDL_SetPointerProperty(props, windowPointerName, this))
 		throw runtime_error(string("VulkanWindow: SDL_SetPointerProperty() function failed. Error details: ") + SDL_GetError());
 
 	// create surface
-	if(!SDL_Vulkan_CreateSurface(_window, VkInstance(instance), nullptr, reinterpret_cast<VkSurfaceKHR*>(&_surface)))
+	if(!SDL_Vulkan_CreateSurface(_sdl.window, VkInstance(instance), nullptr, reinterpret_cast<VkSurfaceKHR*>(&_surface)))
 		throw runtime_error(string("VulkanWindow: SDL_Vulkan_CreateSurface() function failed. Error details: ") + SDL_GetError());
 
 	return _surface;
@@ -2019,26 +2011,26 @@ VkSurfaceKHR VulkanWindow::createInternal(VkInstance instance, VkExtent2D surfac
 #elif defined(USE_PLATFORM_SDL2)
 
 	// init variables
-	_framePending = true;
-	_hiddenWindowFramePending = false;
-	_visible = false;
-	_minimized = false;
+	_sdl.framePending = true;
+	_sdl.hiddenWindowFramePending = false;
+	_sdl.visible = false;
+	_sdl.minimized = false;
 
 	// create Vulkan window
-	_window = SDL_CreateWindow(
+	_sdl.window = SDL_CreateWindow(
 		_title.c_str(),  // title
 		SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED,  // x,y
 		surfaceExtent.width, surfaceExtent.height,  // w,h
 		SDL_WINDOW_VULKAN | SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIDDEN  // flags
 	);
-	if(_window == nullptr)
+	if(_sdl.window == nullptr)
 		throw runtime_error(string("VulkanWindow: SDL_CreateWindow() function failed. Error details: ") + SDL_GetError());
 
 	// set pointer to this
-	SDL_SetWindowData(_window, windowPointerName, this);
+	SDL_SetWindowData(_sdl.window, windowPointerName, this);
 
 	// create surface
-	if(!SDL_Vulkan_CreateSurface(_window, VkInstance(instance), reinterpret_cast<VkSurfaceKHR*>(&_surface)))
+	if(!SDL_Vulkan_CreateSurface(_sdl.window, VkInstance(instance), reinterpret_cast<VkSurfaceKHR*>(&_surface)))
 		throw runtime_error(string("VulkanWindow: SDL_Vulkan_CreateSurface() function failed. Error details: ") + SDL_GetError());
 
 	return _surface;
@@ -2046,11 +2038,13 @@ VkSurfaceKHR VulkanWindow::createInternal(VkInstance instance, VkExtent2D surfac
 #elif defined(USE_PLATFORM_GLFW)
 
 	// init variables
-	_framePendingState = FramePendingState::NotPending;
-	_visible = false;
-	_minimized = false;
-	_savedWidth = surfaceExtent.width;
-	_savedHeight = surfaceExtent.height;
+	_glfw.framePendingState = FramePendingState::NotPending;
+	_glfw.visible = false;
+	_glfw.minimized = false;
+	_glfw.savedPosX = 0;
+	_glfw.savedPosY = 0;
+	_glfw.savedWidth = surfaceExtent.width;
+	_glfw.savedHeight = surfaceExtent.height;
 
 	// create window
 	glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
@@ -2060,37 +2054,37 @@ VkSurfaceKHR VulkanWindow::createInternal(VkInstance instance, VkExtent2D surfac
 		// glfwShowWindow(): "Wayland: Focusing a window requires user interaction"; seen on glfw 3.3.8 and Kubuntu 22.10,
 		// however we need the focus on show on Win32 to get proper window focus
 # endif
-	_window = glfwCreateWindow(surfaceExtent.width, surfaceExtent.height, _title.c_str(), nullptr, nullptr);
-	if(_window == nullptr)
+	_glfw.window = glfwCreateWindow(surfaceExtent.width, surfaceExtent.height, _title.c_str(), nullptr, nullptr);
+	if(_glfw.window == nullptr)
 		throwError("glfwCreateWindow");
 
 	// setup window
-	glfwSetWindowUserPointer(_window, this);
+	glfwSetWindowUserPointer(_glfw.window, this);
 	glfwSetWindowRefreshCallback(
-		_window,
+		_glfw.window,
 		[](GLFWwindow* window) {
 			VulkanWindow* w = reinterpret_cast<VulkanWindow*>(glfwGetWindowUserPointer(window));
 			w->scheduleFrame();
 		}
 	);
 	glfwSetFramebufferSizeCallback(
-		_window,
+		_glfw.window,
 		[](GLFWwindow* window, int width, int height) {
 			VulkanWindow* w = reinterpret_cast<VulkanWindow*>(glfwGetWindowUserPointer(window));
 			w->scheduleResize();
 		}
 	);
 	glfwSetWindowIconifyCallback(
-		_window,
+		_glfw.window,
 		[](GLFWwindow* window, int iconified) {
 			VulkanWindow* w = reinterpret_cast<VulkanWindow*>(glfwGetWindowUserPointer(window));
 
-			w->_minimized = iconified;
+			w->_glfw.minimized = iconified;
 
-			if(w->_minimized) {
+			if(w->_glfw.minimized) {
 				// cancel pending frame, if any, on window minimalization
-				if(w->_framePendingState != FramePendingState::NotPending) {
-					w->_framePendingState = FramePendingState::NotPending;
+				if(w->_glfw.framePendingState != FramePendingState::NotPending) {
+					w->_glfw.framePendingState = FramePendingState::NotPending;
 					for(size_t i=0; i<framePendingWindows.size(); i++)
 						if(framePendingWindows[i] == w) {
 							framePendingWindows[i] = framePendingWindows.back();
@@ -2105,7 +2099,7 @@ VkSurfaceKHR VulkanWindow::createInternal(VkInstance instance, VkExtent2D surfac
 		}
 	);
 	glfwSetWindowCloseCallback(
-		_window,
+		_glfw.window,
 		[](GLFWwindow* window) {
 			VulkanWindow* w = reinterpret_cast<VulkanWindow*>(glfwGetWindowUserPointer(window));
 			if(w->_closeCallback)
@@ -2118,7 +2112,7 @@ VkSurfaceKHR VulkanWindow::createInternal(VkInstance instance, VkExtent2D surfac
 	);
 
 	glfwSetCursorPosCallback(
-		_window,
+		_glfw.window,
 		[](GLFWwindow* window, double xpos, double ypos)
 		{
 			VulkanWindow* w = reinterpret_cast<VulkanWindow*>(glfwGetWindowUserPointer(window));
@@ -2137,7 +2131,7 @@ VkSurfaceKHR VulkanWindow::createInternal(VkInstance instance, VkExtent2D surfac
 		}
 	);
 	glfwSetMouseButtonCallback(
-		_window,
+		_glfw.window,
 		[](GLFWwindow* window, int button, int action, int mods)
 		{
 			VulkanWindow* w = reinterpret_cast<VulkanWindow*>(glfwGetWindowUserPointer(window));
@@ -2161,7 +2155,7 @@ VkSurfaceKHR VulkanWindow::createInternal(VkInstance instance, VkExtent2D surfac
 		}
 	);
 	glfwSetScrollCallback(
-		_window,
+		_glfw.window,
 		[](GLFWwindow* window, double xoffset, double yoffset) {
 			VulkanWindow* w = reinterpret_cast<VulkanWindow*>(glfwGetWindowUserPointer(window));
 			if(w->_mouseWheelCallback)
@@ -2169,7 +2163,7 @@ VkSurfaceKHR VulkanWindow::createInternal(VkInstance instance, VkExtent2D surfac
 		}
 	);
 	glfwSetKeyCallback(
-		_window,
+		_glfw.window,
 		[](GLFWwindow* window, int key, int nativeScanCode, int action, int mods) {
 			VulkanWindow* w = reinterpret_cast<VulkanWindow*>(glfwGetWindowUserPointer(window));
 			if(action != GLFW_REPEAT) {
@@ -2191,28 +2185,28 @@ VkSurfaceKHR VulkanWindow::createInternal(VkInstance instance, VkExtent2D surfac
 		}
 	);
 	glfwSetWindowPosCallback(
-		_window,
+		_glfw.window,
 		[](GLFWwindow* window, int posX, int posY) {
-			VulkanWindow* w = reinterpret_cast<VulkanWindow*>(glfwGetWindowUserPointer(window));
-			if(w->canUpdateSavedGeometry()) {
-				w->_savedPosX = posX;
-				w->_savedPosY = posY;
+			if(canUpdateSavedGeometry(window)) {
+				VulkanWindow* w = reinterpret_cast<VulkanWindow*>(glfwGetWindowUserPointer(window));
+				w->_glfw.savedPosX = posX;
+				w->_glfw.savedPosY = posY;
 			}
 		}
 	);
 	glfwSetWindowSizeCallback(
-		_window,
+		_glfw.window,
 		[](GLFWwindow* window, int width, int height) {
-			VulkanWindow* w = reinterpret_cast<VulkanWindow*>(glfwGetWindowUserPointer(window));
-			if(w->canUpdateSavedGeometry()) {
-				w->_savedWidth = width;
-				w->_savedHeight = height;
+			if(canUpdateSavedGeometry(window)) {
+				VulkanWindow* w = reinterpret_cast<VulkanWindow*>(glfwGetWindowUserPointer(window));
+				w->_glfw.savedWidth = width;
+				w->_glfw.savedHeight = height;
 			}
 		}
 	);
 
 	// create surface
-	if(glfwCreateWindowSurface(instance, _window, nullptr, reinterpret_cast<VkSurfaceKHR*>(&_surface)) != VK_SUCCESS)
+	if(glfwCreateWindowSurface(instance, _glfw.window, nullptr, reinterpret_cast<VkSurfaceKHR*>(&_surface)) != VK_SUCCESS)
 		throwError("glfwCreateWindowSurface");
 
 	return _surface;
@@ -2228,14 +2222,14 @@ VkSurfaceKHR VulkanWindow::createInternal(VkInstance instance, VkExtent2D surfac
 	}
 
 	// setup QtRenderingWindow
-	_window = new QtRenderingWindow(nullptr, this);
-	_window->setSurfaceType(QSurface::VulkanSurface);
-	_window->setVulkanInstance(qVulkanInstance);
-	_window->resize(surfaceExtent.width, surfaceExtent.height);
-	_window->create();
+	_qt.window = new QtRenderingWindow(nullptr, this);
+	_qt.window->setSurfaceType(QSurface::VulkanSurface);
+	_qt.window->setVulkanInstance(qVulkanInstance);
+	_qt.window->resize(surfaceExtent.width, surfaceExtent.height);
+	_qt.window->create();
 
 	// return Vulkan surface
-	_surface = QVulkanInstance::surfaceForWindow(_window);
+	_surface = QVulkanInstance::surfaceForWindow(_qt.window);
 	if(!_surface)
 		throw runtime_error("VulkanWindow::init(): Failed to create surface.");
 	return _surface;
@@ -2308,13 +2302,13 @@ void VulkanWindow::renderFrame()
 		// because _surfaceExtent is set in _xdgToplevelListener's configure callback
 #elif defined(USE_PLATFORM_SDL3)
 		// get surface size using SDL
-		if(!SDL_GetWindowSizeInPixels(_window, reinterpret_cast<int*>(&_surfaceExtent.width), reinterpret_cast<int*>(&_surfaceExtent.height)))
+		if(!SDL_GetWindowSizeInPixels(_sdl.window, reinterpret_cast<int*>(&_surfaceExtent.width), reinterpret_cast<int*>(&_surfaceExtent.height)))
 			throw runtime_error(string("VulkanWindow: SDL_GetWindowSizeInPixels() function failed. Error details: ") + SDL_GetError());
 		_surfaceExtent.width  = clamp(_surfaceExtent.width,  surfaceCapabilities.minImageExtent.width,  surfaceCapabilities.maxImageExtent.width);
 		_surfaceExtent.height = clamp(_surfaceExtent.height, surfaceCapabilities.minImageExtent.height, surfaceCapabilities.maxImageExtent.height);
 #elif defined(USE_PLATFORM_SDL2)
 		// get surface size using SDL
-		SDL_Vulkan_GetDrawableSize(_window, reinterpret_cast<int*>(&_surfaceExtent.width), reinterpret_cast<int*>(&_surfaceExtent.height));
+		SDL_Vulkan_GetDrawableSize(_sdl.window, reinterpret_cast<int*>(&_surfaceExtent.width), reinterpret_cast<int*>(&_surfaceExtent.height));
 		_surfaceExtent.width  = clamp(_surfaceExtent.width,  surfaceCapabilities.minImageExtent.width,  surfaceCapabilities.maxImageExtent.width);
 		_surfaceExtent.height = clamp(_surfaceExtent.height, surfaceCapabilities.minImageExtent.height, surfaceCapabilities.maxImageExtent.height);
 #elif defined(USE_PLATFORM_GLFW)
@@ -2323,7 +2317,7 @@ void VulkanWindow::renderFrame()
 		if(surfaceCapabilities.currentExtent.width != 0xffffffff && surfaceCapabilities.currentExtent.height != 0xffffffff)
 			_surfaceExtent = surfaceCapabilities.currentExtent;
 		else {
-			glfwGetFramebufferSize(_window, reinterpret_cast<int*>(&_surfaceExtent.width), reinterpret_cast<int*>(&_surfaceExtent.height));
+			glfwGetFramebufferSize(_glfw.window, reinterpret_cast<int*>(&_surfaceExtent.width), reinterpret_cast<int*>(&_surfaceExtent.height));
 			checkError("glfwGetFramebufferSize");
 			_surfaceExtent.width  = clamp(_surfaceExtent.width,  surfaceCapabilities.minImageExtent.width,  surfaceCapabilities.maxImageExtent.width);
 			_surfaceExtent.height = clamp(_surfaceExtent.height, surfaceCapabilities.minImageExtent.height, surfaceCapabilities.maxImageExtent.height);
@@ -2334,13 +2328,13 @@ void VulkanWindow::renderFrame()
 		if(surfaceCapabilities.currentExtent.width != 0xffffffff && surfaceCapabilities.currentExtent.height != 0xffffffff)
 			_surfaceExtent = surfaceCapabilities.currentExtent;
 		else {
-			QSize size = _window->size();
-			auto ratio = _window->devicePixelRatio();
+			QSize size = _qt.window->size();
+			auto ratio = _qt.window->devicePixelRatio();
 			_surfaceExtent = VkExtent2D{uint32_t(float(size.width()) * ratio + 0.5f), uint32_t(float(size.height()) * ratio + 0.5f)};
 			_surfaceExtent.width  = clamp(_surfaceExtent.width,  surfaceCapabilities.minImageExtent.width,  surfaceCapabilities.maxImageExtent.width);
 			_surfaceExtent.height = clamp(_surfaceExtent.height, surfaceCapabilities.minImageExtent.height, surfaceCapabilities.maxImageExtent.height);
 		}
-		cout << "New Qt window size in device independent pixels: " << _window->width() << "x" << _window->height()
+		cout << "New Qt window size in device independent pixels: " << _qt.window->width() << "x" << _qt.window->height()
 		     << ", in physical pixels: " << _surfaceExtent.width << "x" << _surfaceExtent.height << endl;
 #endif
 
@@ -2362,10 +2356,10 @@ void VulkanWindow::renderFrame()
 	_frameCallback(*this);
 #else
 # if (QT_VERSION >= QT_VERSION_CHECK(5, 15, 0))
-	qVulkanInstance->presentAboutToBeQueued(_window);
+	qVulkanInstance->presentAboutToBeQueued(_qt.window);
 # endif
 	_frameCallback(*this);
-	qVulkanInstance->presentQueued(_window);
+	qVulkanInstance->presentQueued(_qt.window);
 #endif
 }
 
@@ -2381,7 +2375,7 @@ void VulkanWindow::show()
 	assert(_frameCallback && "Frame callback need to be set before VulkanWindow::mainLoop() call. Please, call VulkanWindow::setFrameCallback() before VulkanWindow::mainLoop().");
 
 	// show window
-	ShowWindow(HWND(_hwnd), SW_SHOW);
+	ShowWindow(HWND(_win32.hwnd), SW_SHOW);
 }
 
 
@@ -2391,7 +2385,7 @@ void VulkanWindow::hide()
 	assert(_surface && "VulkanWindow::_surface is null, indicating invalid VulkanWindow object. Call VulkanWindow::create() to initialize it.");
 
 	// hide window
-	ShowWindow(HWND(_hwnd), SW_HIDE);
+	ShowWindow(HWND(_win32.hwnd), SW_HIDE);
 }
 
 
@@ -2518,19 +2512,19 @@ LRESULT VulkanWindowPrivate::wndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
 					windowProcessed = true;
 
 				// render frame
-				w->_framePendingState = FramePendingState::TentativePending;
+				w->_win32.framePendingState = FramePendingState::TentativePending;
 				w->renderFrame();
 
 				// was frame scheduled again?
 				// (it might be rescheduled again in renderFrame())
-				if(w->_framePendingState == FramePendingState::TentativePending) {
+				if(w->_win32.framePendingState == FramePendingState::TentativePending) {
 
 					// validate window area
-					if(!ValidateRect(HWND(w->_hwnd), NULL))
+					if(!ValidateRect(HWND(w->_win32.hwnd), NULL))
 						thrownException = make_exception_ptr(runtime_error("ValidateRect(): The function failed."));
 
 					// update state to no-frame-pending
-					w->_framePendingState = FramePendingState::NotPending;
+					w->_win32.framePendingState = FramePendingState::NotPending;
 					if(framePendingWindows.size() == 1) {
 						framePendingWindows.clear();  // all iterators are invalidated
 						break;
@@ -2564,10 +2558,10 @@ LRESULT VulkanWindowPrivate::wndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
 		// mouse move
 		case WM_MOUSEMOVE: {
 			VulkanWindowPrivate* w = reinterpret_cast<VulkanWindowPrivate*>(GetWindowLongPtr(hwnd, 0));
-			if(w->_titleBarLeftButtonDownMsgOnHold) {
+			if(w->_win32.titleBarLeftButtonDownMsgOnHold) {
 				// workaround for WM_NCLBUTTONDOWN window freeze
-				w->_titleBarLeftButtonDownMsgOnHold = false;
-				DefWindowProcW(hwnd, WM_NCLBUTTONDOWN, HTCAPTION, w->_titleBarLeftButtonDownPos);
+				w->_win32.titleBarLeftButtonDownMsgOnHold = false;
+				DefWindowProcW(hwnd, WM_NCLBUTTONDOWN, HTCAPTION, w->_win32.titleBarLeftButtonDownPos);
 				return DefWindowProcW(hwnd, msg, wParam, lParam);
 			}
 			handleModifiers(w, wParam);
@@ -2596,8 +2590,8 @@ LRESULT VulkanWindowPrivate::wndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
 			// Processing both messages at once avoids the freeze.
 			if(wParam == HTCAPTION) {
 				VulkanWindowPrivate* w = reinterpret_cast<VulkanWindowPrivate*>(GetWindowLongPtr(hwnd, 0));
-				w->_titleBarLeftButtonDownMsgOnHold = true;
-				w->_titleBarLeftButtonDownPos = lParam;
+				w->_win32.titleBarLeftButtonDownMsgOnHold = true;
+				w->_win32.titleBarLeftButtonDownPos = lParam;
 				return 0;
 			}
 			else
@@ -2609,16 +2603,16 @@ LRESULT VulkanWindowPrivate::wndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
 
 			// if WM_NCLBUTTONDOWN is not on hold, just process the current message
 			VulkanWindowPrivate* w = reinterpret_cast<VulkanWindowPrivate*>(GetWindowLongPtr(hwnd, 0));
-			if(!w->_titleBarLeftButtonDownMsgOnHold)
+			if(!w->_win32.titleBarLeftButtonDownMsgOnHold)
 				return DefWindowProcW(hwnd, msg, wParam, lParam);
 
 			// skip WM_NCMOUSEMOVE with the same coordinates
-			if(w->_titleBarLeftButtonDownPos == lParam)
+			if(w->_win32.titleBarLeftButtonDownPos == lParam)
 				return 0;
 
 			// process WM_NCLBUTTONDOWN and WM_NCMOUSEMOVE
-			w->_titleBarLeftButtonDownMsgOnHold = false;
-			DefWindowProcW(hwnd, WM_NCLBUTTONDOWN, HTCAPTION, w->_titleBarLeftButtonDownPos);
+			w->_win32.titleBarLeftButtonDownMsgOnHold = false;
+			DefWindowProcW(hwnd, WM_NCLBUTTONDOWN, HTCAPTION, w->_win32.titleBarLeftButtonDownPos);
 			return DefWindowProcW(hwnd, WM_NCMOUSEMOVE, wParam, lParam);
 
 		}
@@ -2626,9 +2620,9 @@ LRESULT VulkanWindowPrivate::wndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
 		// workaround for WM_NCLBUTTONDOWN window freeze
 		case WM_NCLBUTTONUP: {
 			VulkanWindowPrivate* w = reinterpret_cast<VulkanWindowPrivate*>(GetWindowLongPtr(hwnd, 0));
-			if(w->_titleBarLeftButtonDownMsgOnHold) {
-				w->_titleBarLeftButtonDownMsgOnHold = false;
-				DefWindowProcW(hwnd, WM_NCLBUTTONDOWN, HTCAPTION, w->_titleBarLeftButtonDownPos);
+			if(w->_win32.titleBarLeftButtonDownMsgOnHold) {
+				w->_win32.titleBarLeftButtonDownMsgOnHold = false;
+				DefWindowProcW(hwnd, WM_NCLBUTTONDOWN, HTCAPTION, w->_win32.titleBarLeftButtonDownPos);
 			}
 			return DefWindowProcW(hwnd, msg, wParam, lParam);
 		}
@@ -2745,18 +2739,18 @@ LRESULT VulkanWindowPrivate::wndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
 		// (we set _visible variable here)
 		case WM_SHOWWINDOW: {
 			VulkanWindowPrivate* w = reinterpret_cast<VulkanWindowPrivate*>(GetWindowLongPtr(hwnd, 0));
-			w->_visible = wParam==TRUE;
-			if(w->_visible == false) {
+			w->_win32.visible = wParam==TRUE;
+			if(w->_win32.visible == false) {
 
 				// store frame pending state
-				w->_hiddenWindowFramePending = w->_framePendingState == FramePendingState::Pending;
+				w->_win32.hiddenWindowFramePending = w->_win32.framePendingState == FramePendingState::Pending;
 
 				// cancel WM_NCLBUTTONDOWN hold operation, if active
-				w->_titleBarLeftButtonDownMsgOnHold = false;
+				w->_win32.titleBarLeftButtonDownMsgOnHold = false;
 
 				// cancel frame pending state
-				if(w->_framePendingState == FramePendingState::Pending) {
-					w->_framePendingState = FramePendingState::NotPending;
+				if(w->_win32.framePendingState == FramePendingState::Pending) {
+					w->_win32.framePendingState = FramePendingState::NotPending;
 					removeFromFramePendingWindows(w);
 				}
 
@@ -2764,8 +2758,8 @@ LRESULT VulkanWindowPrivate::wndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
 			else {
 
 				// restore frame pending state
-				if(w->_hiddenWindowFramePending) {
-					w->_framePendingState = FramePendingState::Pending;
+				if(w->_win32.hiddenWindowFramePending) {
+					w->_win32.framePendingState = FramePendingState::Pending;
 					framePendingWindows.push_back(w);
 				}
 
@@ -2796,8 +2790,8 @@ LRESULT VulkanWindowPrivate::wndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
 
 			// remove frame pending state
 			VulkanWindowPrivate* w = reinterpret_cast<VulkanWindowPrivate*>(GetWindowLongPtr(hwnd, 0));
-			if(w->_framePendingState != FramePendingState::NotPending) {
-				w->_framePendingState = FramePendingState::NotPending;
+			if(w->_win32.framePendingState != FramePendingState::NotPending) {
+				w->_win32.framePendingState = FramePendingState::NotPending;
 				removeFromFramePendingWindows(w);
 			}
 
@@ -2822,19 +2816,19 @@ void VulkanWindow::scheduleFrame()
 	// assert for valid usage
 	assert(_surface && "VulkanWindow::_surface is null, indicating invalid VulkanWindow object. Call VulkanWindow::create() to initialize it.");
 
-	if(_framePendingState == FramePendingState::Pending)
+	if(_win32.framePendingState == FramePendingState::Pending)
 		return;
 
-	if(_framePendingState == FramePendingState::NotPending) {
+	if(_win32.framePendingState == FramePendingState::NotPending) {
 
 		// invalidate window content (this will cause WM_PAINT message to be sent)
-		if(!InvalidateRect(HWND(_hwnd), NULL, FALSE))
+		if(!InvalidateRect(HWND(_win32.hwnd), NULL, FALSE))
 			throw runtime_error("InvalidateRect(): The function failed.");
 
 		framePendingWindows.push_back(this);
 	}
 
-	_framePendingState = FramePendingState::Pending;
+	_win32.framePendingState = FramePendingState::Pending;
 }
 
 
@@ -3791,12 +3785,12 @@ void VulkanWindow::show()
 	assert(_frameCallback && "Frame callback need to be set before VulkanWindow::mainLoop() call. Please, call VulkanWindow::setFrameCallback() before VulkanWindow::mainLoop().");
 
 	// do nothing on already shown window
-	if(_visible)
+	if(_sdl.visible)
 		return;
 
 	// show window
-	if(SDL_ShowWindow(_window))
-		_visible = true;
+	if(SDL_ShowWindow(_sdl.window))
+		_sdl.visible = true;
 	else
 		throw runtime_error(string("VulkanWindow: SDL_ShowWindow() function failed. Error details: ") + SDL_GetError());
 }
@@ -3808,13 +3802,13 @@ void VulkanWindow::hide()
 	assert(_surface && "VulkanWindow::_surface is null, indicating invalid VulkanWindow object. Call VulkanWindow::create() to initialize it.");
 
 	// do nothing on already hidden window
-	if(_visible == false)
+	if(_sdl.visible == false)
 		return;
 
 	// hide window
 	// and set _visible flag immediately
-	if(SDL_HideWindow(_window))
-		_visible = false;
+	if(SDL_HideWindow(_sdl.window))
+		_sdl.visible = false;
 	else
 		throw runtime_error(string("VulkanWindow: SDL_HideWindow() function failed. Error details: ") + SDL_GetError());
 }
@@ -3897,8 +3891,8 @@ void VulkanWindow::mainLoop()
 
 		case SDL_EVENT_WINDOW_EXPOSED: {
 			VulkanWindow* w = getWindow(event.window.windowID);
-			w->_framePending = false;
-			if(w->_visible && !w->_minimized)
+			w->_sdl.framePending = false;
+			if(w->_sdl.visible && !w->_sdl.minimized)
 				w->renderFrame();
 			break;
 		}
@@ -3913,10 +3907,10 @@ void VulkanWindow::mainLoop()
 		case SDL_EVENT_WINDOW_SHOWN: {
 			cout << "Shown event" << endl;
 			VulkanWindow* w = getWindow(event.window.windowID);
-			w->_visible = true;
-			w->_minimized = false;
-			if(w->_hiddenWindowFramePending) {
-				w->_hiddenWindowFramePending = false;
+			w->_sdl.visible = true;
+			w->_sdl.minimized = false;
+			if(w->_sdl.hiddenWindowFramePending) {
+				w->_sdl.hiddenWindowFramePending = false;
 				w->scheduleFrame();
 			}
 			break;
@@ -3925,10 +3919,10 @@ void VulkanWindow::mainLoop()
 		case SDL_EVENT_WINDOW_HIDDEN: {
 			cout << "Hidden event" << endl;
 			VulkanWindow* w = getWindow(event.window.windowID);
-			w->_visible = false;
-			if(w->_framePending) {
-				w->_hiddenWindowFramePending = true;
-				w->_framePending = false;
+			w->_sdl.visible = false;
+			if(w->_sdl.framePending) {
+				w->_sdl.hiddenWindowFramePending = true;
+				w->_sdl.framePending = false;
 			}
 			break;
 		}
@@ -3936,10 +3930,10 @@ void VulkanWindow::mainLoop()
 		case SDL_EVENT_WINDOW_MINIMIZED: {
 			cout << "Minimized event" << endl;
 			VulkanWindow* w = getWindow(event.window.windowID);
-			w->_minimized = true;
-			if(w->_framePending) {
-				w->_hiddenWindowFramePending = true;
-				w->_framePending = false;
+			w->_sdl.minimized = true;
+			if(w->_sdl.framePending) {
+				w->_sdl.hiddenWindowFramePending = true;
+				w->_sdl.framePending = false;
 			}
 			break;
 		}
@@ -3947,9 +3941,9 @@ void VulkanWindow::mainLoop()
 		case SDL_EVENT_WINDOW_RESTORED: {
 			cout << "Restored event" << endl;
 			VulkanWindow* w = getWindow(event.window.windowID);
-			w->_minimized = false;
-			if(w->_hiddenWindowFramePending) {
-				w->_hiddenWindowFramePending = false;
+			w->_sdl.minimized = false;
+			if(w->_sdl.hiddenWindowFramePending) {
+				w->_sdl.hiddenWindowFramePending = false;
 				w->scheduleFrame();
 			}
 			break;
@@ -4047,21 +4041,21 @@ void VulkanWindow::scheduleFrame()
 	// assert for valid usage
 	assert(_surface && "VulkanWindow::_surface is null, indicating invalid VulkanWindow object. Call VulkanWindow::create() to initialize it.");
 
-	if(_framePending)
+	if(_sdl.framePending)
 		return;
 
 	// handle invisible and minimized window
-	if(_visible==false || _minimized) {
-		_hiddenWindowFramePending = true;
+	if(_sdl.visible==false || _sdl.minimized) {
+		_sdl.hiddenWindowFramePending = true;
 		return;
 	}
 
-	_framePending = true;
+	_sdl.framePending = true;
 
 	SDL_Event e;
 	e.window.type = SDL_EVENT_WINDOW_EXPOSED;
 	e.window.timestamp = SDL_GetTicksNS();
-	e.window.windowID = SDL_GetWindowID(_window);
+	e.window.windowID = SDL_GetWindowID(_sdl.window);
 	e.window.data1 = 0;
 	e.window.data2 = 0;
 	SDL_PushEvent(&e);  // the call might fail, but we ignore the error value
@@ -4121,8 +4115,8 @@ void VulkanWindow::show()
 
 	// show window
 	// and set _visible flag immediately
-	SDL_ShowWindow(_window);
-	_visible = true;
+	SDL_ShowWindow(_sdl.window);
+	_sdl.visible = true;
 }
 
 
@@ -4133,8 +4127,8 @@ void VulkanWindow::hide()
 
 	// hide window
 	// and set _visible flag immediately
-	SDL_HideWindow(_window);
-	_visible = false;
+	SDL_HideWindow(_sdl.window);
+	_sdl.visible = false;
 }
 
 
@@ -4205,8 +4199,8 @@ void VulkanWindow::mainLoop()
 			case SDL_WINDOWEVENT_EXPOSED: {
 				VulkanWindow* w = reinterpret_cast<VulkanWindow*>(
 					SDL_GetWindowData(SDL_GetWindowFromID(event.window.windowID), windowPointerName));
-				w->_framePending = false;
-				if(w->_visible && !w->_minimized)
+				w->_sdl.framePending = false;
+				if(w->_sdl.visible && !w->_sdl.minimized)
 					w->renderFrame();
 				break;
 			}
@@ -4223,10 +4217,10 @@ void VulkanWindow::mainLoop()
 				cout << "Shown event" << endl;
 				VulkanWindow* w = reinterpret_cast<VulkanWindow*>(
 					SDL_GetWindowData(SDL_GetWindowFromID(event.window.windowID), windowPointerName));
-				w->_visible = true;
-				w->_minimized = false;
-				if(w->_hiddenWindowFramePending) {
-					w->_hiddenWindowFramePending = false;
+				w->_sdl.visible = true;
+				w->_sdl.minimized = false;
+				if(w->_sdl.hiddenWindowFramePending) {
+					w->_sdl.hiddenWindowFramePending = false;
 					w->scheduleFrame();
 				}
 				break;
@@ -4236,10 +4230,10 @@ void VulkanWindow::mainLoop()
 				cout << "Hidden event" << endl;
 				VulkanWindow* w = reinterpret_cast<VulkanWindow*>(
 					SDL_GetWindowData(SDL_GetWindowFromID(event.window.windowID), windowPointerName));
-				w->_visible = false;
-				if(w->_framePending) {
-					w->_hiddenWindowFramePending = true;
-					w->_framePending = false;
+				w->_sdl.visible = false;
+				if(w->_sdl.framePending) {
+					w->_sdl.hiddenWindowFramePending = true;
+					w->_sdl.framePending = false;
 				}
 				break;
 			}
@@ -4248,10 +4242,10 @@ void VulkanWindow::mainLoop()
 				cout << "Minimized event" << endl;
 				VulkanWindow* w = reinterpret_cast<VulkanWindow*>(
 					SDL_GetWindowData(SDL_GetWindowFromID(event.window.windowID), windowPointerName));
-				w->_minimized = true;
-				if(w->_framePending) {
-					w->_hiddenWindowFramePending = true;
-					w->_framePending = false;
+				w->_sdl.minimized = true;
+				if(w->_sdl.framePending) {
+					w->_sdl.hiddenWindowFramePending = true;
+					w->_sdl.framePending = false;
 				}
 				break;
 			}
@@ -4260,9 +4254,9 @@ void VulkanWindow::mainLoop()
 				cout << "Restored event" << endl;
 				VulkanWindow* w = reinterpret_cast<VulkanWindow*>(
 					SDL_GetWindowData(SDL_GetWindowFromID(event.window.windowID), windowPointerName));
-				w->_minimized = false;
-				if(w->_hiddenWindowFramePending) {
-					w->_hiddenWindowFramePending = false;
+				w->_sdl.minimized = false;
+				if(w->_sdl.hiddenWindowFramePending) {
+					w->_sdl.hiddenWindowFramePending = false;
 					w->scheduleFrame();
 				}
 				break;
@@ -4375,21 +4369,21 @@ void VulkanWindow::scheduleFrame()
 	// assert for valid usage
 	assert(_surface && "VulkanWindow::_surface is null, indicating invalid VulkanWindow object. Call VulkanWindow::create() to initialize it.");
 
-	if(_framePending)
+	if(_sdl.framePending)
 		return;
 
 	// handle invisible and minimized window
-	if(_visible==false || _minimized) {
-		_hiddenWindowFramePending = true;
+	if(_sdl.visible==false || _sdl.minimized) {
+		_sdl.hiddenWindowFramePending = true;
 		return;
 	}
 
-	_framePending = true;
+	_sdl.framePending = true;
 
 	SDL_Event e;
 	e.window.type = SDL_WINDOWEVENT;
 	e.window.timestamp = SDL_GetTicks();
-	e.window.windowID = SDL_GetWindowID(_window);
+	e.window.windowID = SDL_GetWindowID(_sdl.window);
 	e.window.event = SDL_WINDOWEVENT_EXPOSED;
 	e.window.data1 = 0;
 	e.window.data2 = 0;
@@ -4442,8 +4436,8 @@ void VulkanWindow::show()
 	assert(_frameCallback && "Frame callback need to be set before VulkanWindow::mainLoop() call. Please, call VulkanWindow::setFrameCallback() before VulkanWindow::mainLoop().");
 
 	// show window
-	_visible = true;
-	glfwShowWindow(_window);
+	_glfw.visible = true;
+	glfwShowWindow(_glfw.window);
 	checkError("glfwShowWindow");
 	scheduleFrame();
 }
@@ -4455,13 +4449,13 @@ void VulkanWindow::hide()
 	assert(_surface && "VulkanWindow::_surface is null, indicating invalid VulkanWindow object. Call VulkanWindow::create() to initialize it.");
 
 	// hide window
-	_visible = false;
-	glfwHideWindow(_window);
+	_glfw.visible = false;
+	glfwHideWindow(_glfw.window);
 	checkError("glfwHideWindow");
 
 	// cancel pending frame, if any, on window hide
-	if(_framePendingState != FramePendingState::NotPending) {
-		_framePendingState = FramePendingState::NotPending;
+	if(_glfw.framePendingState != FramePendingState::NotPending) {
+		_glfw.framePendingState = FramePendingState::NotPending;
 		for(size_t i=0; i<framePendingWindows.size(); i++)
 			if(framePendingWindows[i] == this) {
 				framePendingWindows[i] = framePendingWindows.back();
@@ -4494,15 +4488,15 @@ void VulkanWindow::mainLoop()
 
 			// render frame
 			VulkanWindow* w = framePendingWindows[i];
-			w->_framePendingState = FramePendingState::TentativePending;
+			w->_glfw.framePendingState = FramePendingState::TentativePending;
 			w->renderFrame();
 
 			// was frame scheduled again?
 			// (it might be rescheduled again in renderFrame())
-			if(w->_framePendingState == FramePendingState::TentativePending) {
+			if(w->_glfw.framePendingState == FramePendingState::TentativePending) {
 
 				// update state to no-frame-pending
-				w->_framePendingState = FramePendingState::NotPending;
+				w->_glfw.framePendingState = FramePendingState::NotPending;
 				if(framePendingWindows.size() == 1) {
 					framePendingWindows.clear();  // all iterators are invalidated
 					break;
@@ -4532,13 +4526,13 @@ void VulkanWindow::scheduleFrame()
 	// assert for valid usage
 	assert(_surface && "VulkanWindow::_surface is null, indicating invalid VulkanWindow object. Call VulkanWindow::create() to initialize it.");
 
-	if(_framePendingState == FramePendingState::Pending)
+	if(_glfw.framePendingState == FramePendingState::Pending)
 		return;
 
-	if(_framePendingState == FramePendingState::NotPending)
+	if(_glfw.framePendingState == FramePendingState::NotPending)
 		framePendingWindows.push_back(this);
 
-	_framePendingState = FramePendingState::Pending;
+	_glfw.framePendingState = FramePendingState::Pending;
 }
 
 
@@ -4578,7 +4572,7 @@ void VulkanWindow::show()
 	assert(_frameCallback && "Frame callback need to be set before VulkanWindow::show() call. Please, call VulkanWindow::setFrameCallback() before VulkanWindow::show().");
 
 	// show window
-	_window->setVisible(true);
+	_qt.window->setVisible(true);
 }
 
 
@@ -4588,13 +4582,13 @@ void VulkanWindow::hide()
 	assert(_surface && "VulkanWindow::_surface is null, indicating invalid VulkanWindow object. Call VulkanWindow::create() to initialize it.");
 
 	// hide window
-	_window->setVisible(false);
+	_qt.window->setVisible(false);
 }
 
 
 bool VulkanWindow::isVisible() const
 {
-	return _window->isVisible();
+	return _qt.window && _qt.window->isVisible();
 }
 
 
@@ -4872,7 +4866,7 @@ void VulkanWindow::scheduleFrame()
 	assert(_surface && "VulkanWindow::_surface is null, indicating invalid VulkanWindow object. Call VulkanWindow::create() to initialize it.");
 
 	// start zero timeout timer
-	static_cast<QtRenderingWindow*>(_window)->scheduleFrameTimer();
+	static_cast<QtRenderingWindow*>(_qt.window)->scheduleFrameTimer();
 }
 
 
@@ -4885,7 +4879,7 @@ void VulkanWindow::scheduleFrame()
 void VulkanWindow::updateTitle()
 {
 	wstring s = utf8toWString(_title.c_str());
-	if(!SetWindowTextW(HWND(_hwnd), s.c_str()))
+	if(!SetWindowTextW(HWND(_win32.hwnd), s.c_str()))
 		throw runtime_error("VulkanWindow::updateTitle(): Failed to set window title.");
 }
 
@@ -4922,7 +4916,7 @@ void VulkanWindow::updateTitle()
 
 void VulkanWindow::updateTitle()
 {
-	if(!SDL_SetWindowTitle(_window, _title.c_str()))
+	if(!SDL_SetWindowTitle(_sdl.window, _title.c_str()))
 		throw runtime_error("VulkanWindow::updateTitle(): Failed to set window title.");
 }
 
@@ -4930,21 +4924,21 @@ void VulkanWindow::updateTitle()
 
 void VulkanWindow::updateTitle()
 {
-	SDL_SetWindowTitle(_window, _title.c_str());
+	SDL_SetWindowTitle(_sdl.window, _title.c_str());
 }
 
 #elif defined(USE_PLATFORM_GLFW)
 
 void VulkanWindow::updateTitle()
 {
-	glfwSetWindowTitle(_window, _title.c_str());
+	glfwSetWindowTitle(_glfw.window, _title.c_str());
 }
 
 #elif defined(USE_PLATFORM_QT)
 
 void VulkanWindow::updateTitle()
 {
-	_window->setTitle(_title.c_str()); // this treats _title as utf8 string
+	_qt.window->setTitle(_title.c_str()); // this treats _title as utf8 string
 }
 
 #endif
@@ -4955,12 +4949,12 @@ void VulkanWindow::updateTitle()
 
 VulkanWindow::WindowState VulkanWindow::windowState() const
 {
-	if(!_visible)
+	if(!_win32.hwnd || !_win32.visible)
 		return WindowState::Hidden;
 
 	WINDOWPLACEMENT wp;
 	wp.length = sizeof(WINDOWPLACEMENT);
-	if(!GetWindowPlacement(HWND(_hwnd), &wp))
+	if(!GetWindowPlacement(HWND(_win32.hwnd), &wp))
 		throw runtime_error("VulkanWindow::windowState(): The function GetWindowPlacement() failed.");
 
 	switch(wp.showCmd) {
@@ -4985,9 +4979,9 @@ void VulkanWindow::setWindowState(WindowState windowState)
 {
 	switch(windowState) {
 	case WindowState::Hidden:     hide(); break;
-	case WindowState::Minimized:  ShowWindow(HWND(_hwnd), SW_SHOWMINIMIZED); _visible = true; break;
-	case WindowState::Normal:     ShowWindow(HWND(_hwnd), SW_SHOWNORMAL); break;
-	case WindowState::Maximized:  ShowWindow(HWND(_hwnd), SW_SHOWMAXIMIZED); _visible = true; break;
+	case WindowState::Minimized:  ShowWindow(HWND(_win32.hwnd), SW_SHOWMINIMIZED); _win32.visible = true; break;
+	case WindowState::Normal:     ShowWindow(HWND(_win32.hwnd), SW_SHOWNORMAL); break;
+	case WindowState::Maximized:  ShowWindow(HWND(_win32.hwnd), SW_SHOWMAXIMIZED); _win32.visible = true; break;
 	case WindowState::FullScreen: break;
 	}
 }
@@ -4996,6 +4990,9 @@ void VulkanWindow::setWindowState(WindowState windowState)
 
 VulkanWindow::WindowState VulkanWindow::windowState() const
 {
+	if(!_xlib.window)
+		return WindowState::Hidden;
+
 	return WindowState::Normal;
 }
 
@@ -5013,17 +5010,19 @@ void VulkanWindowPrivate::syncListenerDone(void *data, wl_callback* cb, uint32_t
 
 VulkanWindow::WindowState VulkanWindow::windowState() const
 {
+	if(!_wayland.wlSurface)
+		return WindowState::Hidden;
+
 	// make sure all window state changes were processed by Wayland server
-	// (if _numSyncEventsOnTheFly is not zero, dispatch Wayland events until it becomes zero)
-	while(_numSyncEventsOnTheFly != 0)
-		if(wl_display_dispatch(_display) == -1)  // it blocks if there are no events
-			throw runtime_error("wl_display_dispatch() failed.");
+	waitAllSyncEvents(_wayland.numSyncEventsOnTheFly);
 
 	return _windowState;
 }
 
 void VulkanWindow::setWindowState(WindowState windowState)
 {
+	assert(_wayland.wlSurface && "VulkanWindow::setWindowState() called on VulkanWindow without created wlSurface. Call VulkanWindow::create() first.");
+
 	// change window state
 	switch(windowState) {
 	case WindowState::Hidden:
@@ -5144,7 +5143,10 @@ void VulkanWindow::setWindowState(WindowState windowState)
 
 VulkanWindow::WindowState VulkanWindow::windowState() const
 {
-	SDL_WindowFlags f = SDL_GetWindowFlags(_window);
+	if(!_sdl.window)
+		return WindowState::Hidden;
+
+	SDL_WindowFlags f = SDL_GetWindowFlags(_sdl.window);
 	if(f & SDL_WINDOW_HIDDEN)
 		return WindowState::Hidden;
 	if(f & SDL_WINDOW_MINIMIZED)
@@ -5160,12 +5162,12 @@ VulkanWindow::WindowState VulkanWindow::windowState() const
 void VulkanWindow::setWindowState(WindowState windowState)
 {
 	// leave fullscreen mode if needed
-	SDL_WindowFlags f = SDL_GetWindowFlags(_window);
+	SDL_WindowFlags f = SDL_GetWindowFlags(_sdl.window);
 	if(f & SDL_WINDOW_FULLSCREEN) {
 		if(windowState == WindowState::FullScreen)
 			return;
 		else
-			SDL_SetWindowFullscreen(_window, false);
+			SDL_SetWindowFullscreen(_sdl.window, false);
 	}
 
 	// change window state
@@ -5174,22 +5176,22 @@ void VulkanWindow::setWindowState(WindowState windowState)
 		hide();
 		break;
 	case WindowState::Minimized:
-		if(!SDL_MinimizeWindow(_window))
+		if(!SDL_MinimizeWindow(_sdl.window))
 			throw runtime_error("VulkanWindow::setWindowState(): Failed to minimize window.");
 		show();
 		break;
 	case WindowState::Normal:
-		if(!SDL_RestoreWindow(_window))
+		if(!SDL_RestoreWindow(_sdl.window))
 			throw runtime_error("VulkanWindow::setWindowState(): Failed to restore window.");
 		show();
 		break;
 	case WindowState::Maximized:
-		if(!SDL_MaximizeWindow(_window))
+		if(!SDL_MaximizeWindow(_sdl.window))
 			throw runtime_error("VulkanWindow::setWindowState(): Failed to maximize window.");
 		show();
 		break;
 	case WindowState::FullScreen:
-		if(!SDL_SetWindowFullscreen(_window, true))
+		if(!SDL_SetWindowFullscreen(_sdl.window, true))
 			throw runtime_error("VulkanWindow::setWindowState(): Failed to make window fullscreen.");
 		show();
 		break;
@@ -5202,7 +5204,10 @@ void VulkanWindow::setWindowState(WindowState windowState)
 
 VulkanWindow::WindowState VulkanWindow::windowState() const
 {
-	Uint32 f = SDL_GetWindowFlags(_window);
+	if(!_sdl.window)
+		return WindowState::Hidden;
+
+	Uint32 f = SDL_GetWindowFlags(_sdl.window);
 	if(f & SDL_WINDOW_HIDDEN)
 		return WindowState::Hidden;
 	if(f & SDL_WINDOW_MINIMIZED)
@@ -5218,21 +5223,21 @@ VulkanWindow::WindowState VulkanWindow::windowState() const
 void VulkanWindow::setWindowState(WindowState windowState)
 {
 	// leave fullscreen mode if needed
-	Uint32 f = SDL_GetWindowFlags(_window);
+	Uint32 f = SDL_GetWindowFlags(_sdl.window);
 	if(f & SDL_WINDOW_FULLSCREEN) {
 		if(windowState == WindowState::FullScreen)
 			return;
 		else
-			SDL_SetWindowFullscreen(_window, 0);  // leave full screen mode
+			SDL_SetWindowFullscreen(_sdl.window, 0);  // leave full screen mode
 	}
 
 	// change window state
 	switch(windowState) {
 	case WindowState::Hidden:     hide(); break;
-	case WindowState::Minimized:  show(); SDL_MinimizeWindow(_window); break;
-	case WindowState::Normal:     SDL_RestoreWindow(_window); show(); break;
-	case WindowState::Maximized:  SDL_MaximizeWindow(_window); show(); break;
-	case WindowState::FullScreen: if(SDL_SetWindowFullscreen(_window, SDL_WINDOW_FULLSCREEN_DESKTOP) != 0)
+	case WindowState::Minimized:  show(); SDL_MinimizeWindow(_sdl.window); break;
+	case WindowState::Normal:     SDL_RestoreWindow(_sdl.window); show(); break;
+	case WindowState::Maximized:  SDL_MaximizeWindow(_sdl.window); show(); break;
+	case WindowState::FullScreen: if(SDL_SetWindowFullscreen(_sdl.window, SDL_WINDOW_FULLSCREEN_DESKTOP) != 0)
 		                              throw runtime_error("VulkanWindow::setWindowState(): Failed to make window fullscreen.");
 		                          show();
 		                          break;
@@ -5244,13 +5249,16 @@ void VulkanWindow::setWindowState(WindowState windowState)
 
 VulkanWindow::WindowState VulkanWindow::windowState() const
 {
-	if(!glfwGetWindowAttrib(_window, GLFW_VISIBLE))
+	if(!_glfw.window)
 		return WindowState::Hidden;
-	if(glfwGetWindowAttrib(_window, GLFW_ICONIFIED))
+
+	if(!glfwGetWindowAttrib(_glfw.window, GLFW_VISIBLE))
+		return WindowState::Hidden;
+	if(glfwGetWindowAttrib(_glfw.window, GLFW_ICONIFIED))
 		return WindowState::Minimized;
-	if(glfwGetWindowMonitor(_window) != nullptr)
+	if(glfwGetWindowMonitor(_glfw.window) != nullptr)
 		return WindowState::FullScreen;
-	if(glfwGetWindowAttrib(_window, GLFW_MAXIMIZED))
+	if(glfwGetWindowAttrib(_glfw.window, GLFW_MAXIMIZED))
 		return WindowState::Maximized;
 	else
 		return WindowState::Normal;
@@ -5259,28 +5267,28 @@ VulkanWindow::WindowState VulkanWindow::windowState() const
 void VulkanWindow::setWindowState(WindowState windowState)
 {
 	// leave fullscreen mode if needed
-	if(glfwGetWindowMonitor(_window) != nullptr) {
+	if(glfwGetWindowMonitor(_glfw.window) != nullptr) {
 		if(windowState == WindowState::FullScreen)
 			return;
 		else {
 			if(windowState == WindowState::Hidden || windowState == WindowState::Normal ||
 			   windowState == WindowState::Maximized)
-				glfwSetWindowMonitor(_window, nullptr, _savedPosX, _savedPosY, _savedWidth, _savedHeight, 0);
+				glfwSetWindowMonitor(_glfw.window, nullptr, _glfw.savedPosX, _glfw.savedPosY, _glfw.savedWidth, _glfw.savedHeight, 0);
 			if(windowState == WindowState::Maximized)
-				glfwRestoreWindow(_window);  // this seems necessary to transition correctly from full screen to maximized state (seen on glfw 3.3.8 on 2025-02-14)
+				glfwRestoreWindow(_glfw.window);  // this seems necessary to transition correctly from full screen to maximized state (seen on glfw 3.3.8 on 2025-02-14)
 		}
 	}
 
 	// change window state
 	switch(windowState) {
 	case WindowState::Hidden:     hide(); break;
-	case WindowState::Minimized:  glfwIconifyWindow(_window); show(); break;
-	case WindowState::Normal:     glfwRestoreWindow(_window); show(); break;
-	case WindowState::Maximized:  glfwMaximizeWindow(_window); show(); break;
+	case WindowState::Minimized:  glfwIconifyWindow(_glfw.window); show(); break;
+	case WindowState::Normal:     glfwRestoreWindow(_glfw.window); show(); break;
+	case WindowState::Maximized:  glfwMaximizeWindow(_glfw.window); show(); break;
 	case WindowState::FullScreen: {
 			GLFWmonitor* m = glfwGetPrimaryMonitor();
 			const GLFWvidmode* mode = glfwGetVideoMode(m);
-			glfwSetWindowMonitor(_window, m, 0, 0, mode->width, mode->height, mode->refreshRate);
+			glfwSetWindowMonitor(_glfw.window, m, 0, 0, mode->width, mode->height, mode->refreshRate);
 			show();
 			break;
 		}
@@ -5288,26 +5296,14 @@ void VulkanWindow::setWindowState(WindowState windowState)
 	}
 }
 
-bool VulkanWindow::canUpdateSavedGeometry() const
-{
-	if(glfwGetWindowAttrib(_window, GLFW_MAXIMIZED))
-		return false;
-	if(glfwGetWindowAttrib(_window, GLFW_ICONIFIED))
-		return false;
-	if(!glfwGetWindowAttrib(_window, GLFW_VISIBLE))
-		return false;
-	if(glfwGetWindowMonitor(_window) != nullptr)
-		return false;
-	return true;
-}
-
 #elif defined(USE_PLATFORM_QT)
 
 VulkanWindow::WindowState VulkanWindow::windowState() const
 {
-	if(!_window->isVisible())
+	if(!_qt.window || !_qt.window->isVisible())
 		return WindowState::Hidden;
-	switch(_window->windowState()) {
+
+	switch(_qt.window->windowState()) {
 	case Qt::WindowMinimized:   return WindowState::Minimized;
 	case Qt::WindowNoState:     return WindowState::Normal;
 	case Qt::WindowMaximized:   return WindowState::Maximized;
@@ -5320,10 +5316,10 @@ void VulkanWindow::setWindowState(WindowState windowState)
 {
 	switch(windowState) {
 	case WindowState::Hidden:     hide(); break;
-	case WindowState::Minimized:  _window->showMinimized(); break;
-	case WindowState::Normal:     _window->showNormal(); break;
-	case WindowState::Maximized:  _window->showMaximized(); break;
-	case WindowState::FullScreen: _window->showFullScreen(); break;
+	case WindowState::Minimized:  _qt.window->showMinimized(); break;
+	case WindowState::Normal:     _qt.window->showNormal(); break;
+	case WindowState::Maximized:  _qt.window->showMaximized(); break;
+	case WindowState::FullScreen: _qt.window->showFullScreen(); break;
 	default: throw runtime_error("VulkanWindow::setWindowState(): Invalid WindowState value passed as parameter.");
 	}
 }

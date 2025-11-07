@@ -7,6 +7,9 @@
 #include <functional>
 #include <string>
 
+// we need vkGetInstanceProcAddr even if VK_NO_PROTOTYPES is defined (Qt defining it in some headers)
+extern "C" VKAPI_ATTR PFN_vkVoidFunction VKAPI_CALL vkGetInstanceProcAddr(VkInstance instance, const char* pName);
+
 
 
 class VulkanWindow {
@@ -97,109 +100,89 @@ public:
 
 protected:
 
-#if defined(USE_PLATFORM_WIN32)
-
-	void* _hwnd = nullptr;  // void* is used instead of HWND type to avoid #include <windows.h>
 	enum class FramePendingState { NotPending, Pending, TentativePending };
-	FramePendingState _framePendingState;
-	bool _visible = false;
-	bool _hiddenWindowFramePending;
-	bool _titleBarLeftButtonDownMsgOnHold = false;
-	__int64 _titleBarLeftButtonDownPos;
-
-	static inline void* _hInstance = 0;  // void* is used instead of HINSTANCE type to avoid #include <windows.h>
-	static inline uint16_t _windowClass = 0;  // uint16_t is used instead of ATOM type to avoid #include <windows.h>
-	static inline const std::vector<const char*> _requiredInstanceExtensions =
-		{ "VK_KHR_surface", "VK_KHR_win32_surface" };
-
-#elif defined(USE_PLATFORM_XLIB)
-
-	unsigned long _window = 0;  // unsigned long is used for Window type
-	bool _framePending;
-	bool _visible = false;
-	bool _fullyObscured;
-	bool _iconVisible;
-	bool _minimized;
-
-	static inline struct _XDisplay* _display = nullptr;  // struct _XDisplay* is used instead of Display* type
-	static inline unsigned long _wmDeleteMessage;  // unsigned long is used for Atom type
-	static inline unsigned long _wmStateProperty;  // unsigned long is used for Atom type
-	static inline unsigned long _netWmName;  // unsigned long is used for Atom type
-	static inline unsigned long _utf8String;  // unsigned long is used for Atom type
-	static inline const std::vector<const char*> _requiredInstanceExtensions =
-		{ "VK_KHR_surface", "VK_KHR_xlib_surface" };
-
-	void updateMinimized();
-
-#elif defined(USE_PLATFORM_WAYLAND)
-
-	// objects
-	struct wl_surface* _wlSurface = nullptr;
-	struct xdg_surface* _xdgSurface = nullptr;
-	struct xdg_toplevel* _xdgTopLevel = nullptr;
-	struct zxdg_toplevel_decoration_v1* _decoration = nullptr;
-	struct libdecor_frame* _libdecorFrame = nullptr;
-	struct wl_callback* _scheduledFrameCallback = nullptr;
-
-	// state
-	bool _forcedFrame;
-	unsigned _numSyncEventsOnTheFly = 0;
-	WindowState _windowState = WindowState::Hidden;
-
-	// globals
-	static inline struct wl_display* _display = nullptr;
-	static inline struct wl_registry* _registry;
-	static inline struct wl_compositor* _compositor = nullptr;
-	static inline struct xdg_wm_base* _xdgWmBase = nullptr;
-	static inline struct zxdg_decoration_manager_v1* _zxdgDecorationManagerV1 = nullptr;
-	static inline struct libdecor* _libdecorContext = nullptr;
-	static inline struct wl_shm* _shm = nullptr;
-	static inline struct wl_cursor_theme* _cursorTheme = nullptr;
-	static inline struct wl_surface* _cursorSurface = nullptr;
-	static inline int _cursorHotspotX;
-	static inline int _cursorHotspotY;
-	static inline struct wl_seat* _seat = nullptr;
-	static inline struct wl_pointer* _pointer = nullptr;
-	static inline struct wl_keyboard* _keyboard = nullptr;
-	static inline struct xkb_context* _xkbContext = nullptr;
-	static inline struct xkb_state* _xkbState = nullptr;
-	static inline std::bitset<16> _modifiers;
-
-	static inline const std::vector<const char*> _requiredInstanceExtensions =
-		{ "VK_KHR_surface", "VK_KHR_wayland_surface" };
-
-	void show(void (*xdgConfigFunc)(VulkanWindow&), void (*libdecorConfigFunc)(VulkanWindow&));
-
-#elif defined(USE_PLATFORM_SDL3) || defined(USE_PLATFORM_SDL2)
-
-	struct SDL_Window* _window = nullptr;
-	bool _framePending;
-	bool _hiddenWindowFramePending;
-	bool _visible = false;
-	bool _minimized;
-
-#elif defined(USE_PLATFORM_GLFW)
-
-	struct GLFWwindow* _window = nullptr;
-	enum class FramePendingState { NotPending, Pending, TentativePending };
-	FramePendingState _framePendingState;
-	bool _visible;
-	bool _minimized;
-	int _savedPosX = 0;
-	int _savedPosY = 0;
-	int _savedWidth;
-	int _savedHeight;
-
-	bool canUpdateSavedGeometry() const;
-
-#elif defined(USE_PLATFORM_QT)
-
-	class QWindow* _window = nullptr;
 	friend class QtRenderingWindow;
 
-#else
-# error "Define one of USE_PLATFORM_* macros to use VulkanWindow."
-#endif
+	union {
+
+		struct Any {
+			void* handle;
+			Any()  : handle(nullptr) {}
+		} _any;
+
+		struct {
+
+			void* hwnd;  // void* is used instead of HWND type to avoid #include <windows.h>
+			FramePendingState framePendingState;
+			bool visible;
+			bool hiddenWindowFramePending;
+			bool titleBarLeftButtonDownMsgOnHold;
+			__int64 titleBarLeftButtonDownPos;
+
+		} _win32;
+
+		struct {
+
+			unsigned long window;  // unsigned long is used for Window type
+			bool framePending;
+			bool visible;
+			bool fullyObscured;
+			bool iconVisible;
+			bool minimized;
+
+			void updateMinimized();
+
+		} _xlib;
+
+		struct {
+
+			// objects
+			struct wl_surface* wlSurface;
+			struct xdg_surface* xdgSurface;
+			struct xdg_toplevel* xdgTopLevel;
+			struct zxdg_toplevel_decoration_v1* decoration;
+			struct libdecor_frame* libdecorFrame;
+			struct wl_callback* scheduledFrameCallback;
+
+			// state
+			bool forcedFrame;
+			unsigned numSyncEventsOnTheFly;
+			WindowState windowState;
+
+			void show(void (*xdgConfigFunc)(VulkanWindow&), void (*libdecorConfigFunc)(VulkanWindow&));
+
+		} _wayland;
+
+		struct {
+
+			struct SDL_Window* window;
+			bool framePending;
+			bool hiddenWindowFramePending;
+			bool visible;
+			bool minimized;
+
+		} _sdl;
+
+		struct GLFW {
+
+			struct GLFWwindow* window;
+			FramePendingState framePendingState;
+			bool visible;
+			bool minimized;
+			int savedPosX;
+			int savedPosY;
+			int savedWidth;
+			int savedHeight;
+
+		} _glfw;
+
+		struct {
+
+			class QWindow* window;
+
+		} _qt;
+
+	};
 
 	std::function<FrameCallback> _frameCallback;
 	VkInstance _instance = nullptr;
@@ -236,7 +219,7 @@ public:
 	static void finalize() noexcept;
 
 	// construction and destruction
-	VulkanWindow() = default;
+	VulkanWindow();
 	VulkanWindow(VulkanWindow&& other) noexcept;
 	~VulkanWindow();
 	void destroy() noexcept;
@@ -246,9 +229,7 @@ public:
 	VulkanWindow(const VulkanWindow&) = delete;
 	VulkanWindow& operator=(const VulkanWindow&) = delete;
 
-	// general methods
-	VkSurfaceKHR create(VkInstance instance, VkExtent2D surfaceExtent, std::string&& title = "Vulkan window",
-	                    PFN_vkGetInstanceProcAddr getInstanceProcAddr = ::vkGetInstanceProcAddr);
+	// general functions
 	VkSurfaceKHR create(VkInstance instance, VkExtent2D surfaceExtent, const std::string& title = "Vulkan window",
 	                    PFN_vkGetInstanceProcAddr getInstanceProcAddr = ::vkGetInstanceProcAddr);
 	void setDevice(VkDevice device, VkPhysicalDevice physicalDevice);
@@ -294,13 +275,13 @@ public:
 	void setTitle(const std::string& s);
 	void setWindowState(WindowState windowState);
 
-	// setWindowState() convenience functions
+	// convenience functions calling setWindowState()
 	void showFullScreen();
 	void showMaximized();
 	void showNormal();
 	void showMinimized();
 
-	// schedule methods
+	// schedule functions
 	void scheduleFrame();
 	void scheduleResize();
 
@@ -319,6 +300,7 @@ public:
 
 
 // inline methods
+inline VulkanWindow::VulkanWindow()  : _any() {}
 inline void VulkanWindow::setVisible(bool value)  { if(value) show(); else hide(); }
 inline void VulkanWindow::setFrameCallback(std::function<FrameCallback>&& cb)  { _frameCallback = std::move(cb); }
 inline void VulkanWindow::setFrameCallback(const std::function<FrameCallback>& cb)  { _frameCallback = cb; }
@@ -343,11 +325,17 @@ inline const std::function<VulkanWindow::MouseWheelCallback>& VulkanWindow::mous
 inline const std::function<VulkanWindow::KeyCallback>& VulkanWindow::keyCallback() const  { return _keyCallback; }
 inline VkSurfaceKHR VulkanWindow::surface() const  { return _surface; }
 inline VkExtent2D VulkanWindow::surfaceExtent() const  { return _surfaceExtent; }
-#if defined(USE_PLATFORM_WIN32) || defined(USE_PLATFORM_XLIB) || defined(USE_PLATFORM_SDL3) || defined(USE_PLATFORM_SDL2) || defined(USE_PLATFORM_GLFW)
-inline bool VulkanWindow::isVisible() const  { return _visible; }
+#if defined(USE_PLATFORM_WIN32)
+inline bool VulkanWindow::isVisible() const  { return _win32.hwnd && _win32.visible; }
+#elif defined(USE_PLATFORM_XLIB)
+inline bool VulkanWindow::isVisible() const  { return _xlib.window && _xlib.visible; }
 #elif defined(USE_PLATFORM_WAYLAND)
-inline bool VulkanWindow::isVisible() const  { return _xdgSurface != nullptr || _libdecorFrame != nullptr; }
+inline bool VulkanWindow::isVisible() const  { return _wayland.wlSurface && (_wayland.xdgSurface || _wayland.libdecorFrame); }
 inline void VulkanWindow::show()  { show([](VulkanWindow&){}, [](VulkanWindow&){}); }
+#elif defined(USE_PLATFORM_SDL3) || defined(USE_PLATFORM_SDL2)
+inline bool VulkanWindow::isVisible() const  { return _sdl.window && _sdl.visible; }
+#elif defined(USE_PLATFORM_GLFW)
+inline bool VulkanWindow::isVisible() const  { return _glfw.window && _glfw.visible; }
 #endif
 inline const std::string& VulkanWindow::title() const  { return _title; }
 inline void VulkanWindow::setTitle(std::string&& s)  { if(s==_title) return; _title=std::move(s); updateTitle(); }
@@ -357,11 +345,13 @@ inline void VulkanWindow::showMaximized()  { setWindowState(WindowState::Maximiz
 inline void VulkanWindow::showNormal()  { setWindowState(WindowState::Normal); }
 inline void VulkanWindow::showMinimized()  { setWindowState(WindowState::Minimized); }
 inline void VulkanWindow::scheduleResize()  { _resizePending = true; scheduleFrame(); }
+#if 0
 #if defined(USE_PLATFORM_WIN32) || defined(USE_PLATFORM_XLIB) || defined(USE_PLATFORM_WAYLAND)
 inline const std::vector<const char*>& VulkanWindow::requiredExtensions()  { return _requiredInstanceExtensions; }
 inline std::vector<const char*>& VulkanWindow::appendRequiredExtensions(std::vector<const char*>& v)  { v.insert(v.end(), _requiredInstanceExtensions.begin(), _requiredInstanceExtensions.end()); return v; }
 inline uint32_t VulkanWindow::requiredExtensionCount()  { return uint32_t(_requiredInstanceExtensions.size()); }
 inline const char* const* VulkanWindow::requiredExtensionNames()  { return _requiredInstanceExtensions.data(); }
+#endif
 #endif
 inline constexpr VulkanWindow::KeyCode VulkanWindow::fromAscii(char ch)  { return VulkanWindow::KeyCode(ch); }
 
