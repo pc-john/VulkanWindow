@@ -3,6 +3,7 @@
 #include <vulkan/vulkan.h>
 #include <array>
 #include <bitset>
+#include <cstdint>
 #include <exception>
 #include <functional>
 #include <string>
@@ -105,9 +106,8 @@ protected:
 
 	union {
 
-		struct Any {
-			void* handle;
-			Any()  : handle(nullptr) {}
+		struct {
+			void* handle = nullptr;
 		} _any;
 
 		struct {
@@ -117,7 +117,7 @@ protected:
 			bool visible;
 			bool hiddenWindowFramePending;
 			bool titleBarLeftButtonDownMsgOnHold;
-			__int64 titleBarLeftButtonDownPos;
+			int64_t titleBarLeftButtonDownPos;
 
 		} _win32;
 
@@ -129,8 +129,6 @@ protected:
 			bool fullyObscured;
 			bool iconVisible;
 			bool minimized;
-
-			void updateMinimized();
 
 		} _xlib;
 
@@ -149,8 +147,6 @@ protected:
 			unsigned numSyncEventsOnTheFly;
 			WindowState windowState;
 
-			void show(void (*xdgConfigFunc)(VulkanWindow&), void (*libdecorConfigFunc)(VulkanWindow&));
-
 		} _wayland;
 
 		struct {
@@ -163,7 +159,7 @@ protected:
 
 		} _sdl;
 
-		struct GLFW {
+		struct {
 
 			struct GLFWwindow* window;
 			FramePendingState framePendingState;
@@ -209,6 +205,8 @@ protected:
 	VkSurfaceKHR createInternal(VkInstance instance, VkExtent2D surfaceExtent,
 	                            PFN_vkGetInstanceProcAddr getInstanceProcAddr);
 	void updateTitle();
+	void show(void (*xdgConfigFunc)(VulkanWindow&), void (*libdecorConfigFunc)(VulkanWindow&));  // wayland-only function
+	void updateMinimized();  // xlib-only function
 
 public:
 
