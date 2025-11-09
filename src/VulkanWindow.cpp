@@ -60,73 +60,6 @@
 #include <stdexcept>
 #include <iostream>  // for debugging
 
-using namespace std;
-
-
-// global variables
-#if defined(USE_PLATFORM_WIN32)
-
-struct win32 {
-	static inline void* hInstance = 0;  // void* is used instead of HINSTANCE type to avoid #include <windows.h>
-	static inline uint16_t windowClass = 0;  // uint16_t is used instead of ATOM type to avoid #include <windows.h>
-	static inline const std::vector<const char*> requiredInstanceExtensions =
-		{ "VK_KHR_surface", "VK_KHR_win32_surface" };
-};
-
-const std::vector<const char*>& VulkanWindow::requiredExtensions()  { return win32::requiredInstanceExtensions; }
-std::vector<const char*>& VulkanWindow::appendRequiredExtensions(std::vector<const char*>& v)  { v.insert(v.end(), win32::requiredInstanceExtensions.begin(), win32::requiredInstanceExtensions.end()); return v; }
-uint32_t VulkanWindow::requiredExtensionCount()  { return uint32_t(win32::requiredInstanceExtensions.size()); }
-const char* const* VulkanWindow::requiredExtensionNames()  { return win32::requiredInstanceExtensions.data(); }
-
-#elif defined(USE_PLATFORM_XLIB)
-
-struct xlib {
-	static inline struct _XDisplay* display = nullptr;  // struct _XDisplay* is used instead of Display* type
-	static inline unsigned long wmDeleteMessage;  // unsigned long is used for Atom type
-	static inline unsigned long wmStateProperty;  // unsigned long is used for Atom type
-	static inline unsigned long netWmName;  // unsigned long is used for Atom type
-	static inline unsigned long utf8String;  // unsigned long is used for Atom type
-	static inline const std::vector<const char*> requiredInstanceExtensions =
-		{ "VK_KHR_surface", "VK_KHR_xlib_surface" };
-};
-
-const std::vector<const char*>& VulkanWindow::requiredExtensions()  { return xlib::requiredInstanceExtensions; }
-std::vector<const char*>& VulkanWindow::appendRequiredExtensions(std::vector<const char*>& v)  { v.insert(v.end(), xlib::requiredInstanceExtensions.begin(), xlib::requiredInstanceExtensions.end()); return v; }
-uint32_t VulkanWindow::requiredExtensionCount()  { return uint32_t(xlib::requiredInstanceExtensions.size()); }
-const char* const* VulkanWindow::requiredExtensionNames()  { return xlib::requiredInstanceExtensions.data(); }
-
-#elif defined(USE_PLATFORM_WAYLAND)
-
-struct wayland {
-	static inline struct wl_display* display = nullptr;
-	static inline struct wl_registry* registry;
-	static inline struct wl_compositor* compositor = nullptr;
-	static inline struct xdg_wm_base* xdgWmBase = nullptr;
-	static inline struct zxdg_decoration_manager_v1* zxdgDecorationManagerV1 = nullptr;
-	static inline struct libdecor* libdecorContext = nullptr;
-	static inline struct wl_shm* shm = nullptr;
-	static inline struct wl_cursor_theme* cursorTheme = nullptr;
-	static inline struct wl_surface* cursorSurface = nullptr;
-	static inline int cursorHotspotX;
-	static inline int cursorHotspotY;
-	static inline struct wl_seat* seat = nullptr;
-	static inline struct wl_pointer* pointer = nullptr;
-	static inline struct wl_keyboard* keyboard = nullptr;
-	static inline struct xkb_context* xkbContext = nullptr;
-	static inline struct xkb_state* xkbState = nullptr;
-	static inline std::bitset<16> modifiers;
-
-	static inline const std::vector<const char*> requiredInstanceExtensions =
-		{ "VK_KHR_surface", "VK_KHR_wayland_surface" };
-};
-
-const std::vector<const char*>& VulkanWindow::requiredExtensions()  { return wayland::requiredInstanceExtensions; }
-std::vector<const char*>& VulkanWindow::appendRequiredExtensions(std::vector<const char*>& v)  { v.insert(v.end(), wayland::requiredInstanceExtensions.begin(), wayland::requiredInstanceExtensions.end()); return v; }
-uint32_t VulkanWindow::requiredExtensionCount()  { return uint32_t(wayland::requiredInstanceExtensions.size()); }
-const char* const* VulkanWindow::requiredExtensionNames()  { return wayland::requiredInstanceExtensions.data(); }
-
-#endif
-
 // xcbcommon types and funcs
 // (we avoid dependency on include xkbcommon/xkbcommon.h to lessen VulkanWindow dependencies)
 #if defined(USE_PLATFORM_XLIB)
@@ -241,6 +174,9 @@ struct libdecor_frame_workaround {  // taken from libdecor-plugin.h to workaroun
 #endif
 
 
+using namespace std;
+
+
 class VulkanWindowPrivate : public VulkanWindow {
 public:
 #if defined(USE_PLATFORM_WIN32)
@@ -276,15 +212,154 @@ public:
 };
 
 
+
+//
+// global variables for various platforms
+//
 #if defined(USE_PLATFORM_WIN32)
 
-// list of windows waiting for frame rendering
-// (the windows have _framePendingState set to FramePendingState::Pending or TentativePending)
-static vector<VulkanWindow*> framePendingWindows;
+struct win32 {
 
-// scan code to key conversion table
-// (the table is updated upon each keyboard layout change)
-static VulkanWindow::KeyCode keyConversionTable[128];
+	// general win32 global variables
+	static inline void* hInstance = 0;  // void* is used instead of HINSTANCE type to avoid #include <windows.h>
+	static inline uint16_t windowClass = 0;  // uint16_t is used instead of ATOM type to avoid #include <windows.h>
+	static inline const vector<const char*> requiredInstanceExtensions =
+		{ "VK_KHR_surface", "VK_KHR_win32_surface" };
+
+	// list of windows waiting for frame rendering
+	// (the windows have _framePendingState set to FramePendingState::Pending or TentativePending)
+	static inline vector<VulkanWindow*> framePendingWindows;
+
+	// scan code to key conversion table
+	// (the table is updated upon each keyboard layout change)
+	static inline VulkanWindow::KeyCode keyConversionTable[128];
+
+};
+
+// required instance extensions functions
+const std::vector<const char*>& VulkanWindow::requiredExtensions()  { return win32::requiredInstanceExtensions; }
+std::vector<const char*>& VulkanWindow::appendRequiredExtensions(std::vector<const char*>& v)  { v.insert(v.end(), win32::requiredInstanceExtensions.begin(), win32::requiredInstanceExtensions.end()); return v; }
+uint32_t VulkanWindow::requiredExtensionCount()  { return uint32_t(win32::requiredInstanceExtensions.size()); }
+const char* const* VulkanWindow::requiredExtensionNames()  { return win32::requiredInstanceExtensions.data(); }
+
+#elif defined(USE_PLATFORM_XLIB)
+
+struct xlib {
+
+	// xlib global variables
+	static inline struct _XDisplay* display = nullptr;  // struct _XDisplay* is used instead of Display* type
+	static inline unsigned long wmDeleteMessage;  // unsigned long is used for Atom type
+	static inline unsigned long wmStateProperty;  // unsigned long is used for Atom type
+	static inline unsigned long netWmName;  // unsigned long is used for Atom type
+	static inline unsigned long utf8String;  // unsigned long is used for Atom type
+	static inline const vector<const char*> requiredInstanceExtensions =
+		{ "VK_KHR_surface", "VK_KHR_xlib_surface" };
+
+};
+
+// required instance extensions functions
+const std::vector<const char*>& VulkanWindow::requiredExtensions()  { return xlib::requiredInstanceExtensions; }
+std::vector<const char*>& VulkanWindow::appendRequiredExtensions(std::vector<const char*>& v)  { v.insert(v.end(), xlib::requiredInstanceExtensions.begin(), xlib::requiredInstanceExtensions.end()); return v; }
+uint32_t VulkanWindow::requiredExtensionCount()  { return uint32_t(xlib::requiredInstanceExtensions.size()); }
+const char* const* VulkanWindow::requiredExtensionNames()  { return xlib::requiredInstanceExtensions.data(); }
+
+#elif defined(USE_PLATFORM_WAYLAND)
+
+struct wayland {
+	static inline struct wl_display* display = nullptr;
+	static inline struct wl_registry* registry;
+	static inline struct wl_compositor* compositor = nullptr;
+	static inline struct xdg_wm_base* xdgWmBase = nullptr;
+	static inline struct zxdg_decoration_manager_v1* zxdgDecorationManagerV1 = nullptr;
+	static inline struct libdecor* libdecorContext = nullptr;
+	static inline struct wl_shm* shm = nullptr;
+	static inline struct wl_cursor_theme* cursorTheme = nullptr;
+	static inline struct wl_surface* cursorSurface = nullptr;
+	static inline int cursorHotspotX;
+	static inline int cursorHotspotY;
+	static inline struct wl_seat* seat = nullptr;
+	static inline struct wl_pointer* pointer = nullptr;
+	static inline struct wl_keyboard* keyboard = nullptr;
+	static inline struct xkb_context* xkbContext = nullptr;
+	static inline struct xkb_state* xkbState = nullptr;
+	static inline std::bitset<16> modifiers;
+
+	static inline const vector<const char*> requiredInstanceExtensions =
+		{ "VK_KHR_surface", "VK_KHR_wayland_surface" };
+};
+
+// required instance extensions functions
+const std::vector<const char*>& VulkanWindow::requiredExtensions()  { return wayland::requiredInstanceExtensions; }
+std::vector<const char*>& VulkanWindow::appendRequiredExtensions(std::vector<const char*>& v)  { v.insert(v.end(), wayland::requiredInstanceExtensions.begin(), wayland::requiredInstanceExtensions.end()); return v; }
+uint32_t VulkanWindow::requiredExtensionCount()  { return uint32_t(wayland::requiredInstanceExtensions.size()); }
+const char* const* VulkanWindow::requiredExtensionNames()  { return wayland::requiredInstanceExtensions.data(); }
+
+#elif defined(USE_PLATFORM_SDL3) || defined(USE_PLATFORM_SDL2)
+
+struct sdl {
+
+	// SDL global variables
+	static inline bool initialized = false;
+	static inline bool running;
+	static inline constexpr const char* windowPointerName = "VulkanWindow";
+#if defined(USE_PLATFORM_SDL3)
+	static inline vector<const char*> requiredInstanceExtensions;
+#endif
+
+};
+
+#elif defined(USE_PLATFORM_GLFW)
+
+struct glfw {
+
+	// bool indicating that application is running and it shall not leave main loop
+	static inline bool running;
+
+	// list of windows waiting for frame rendering
+	// (the windows have _framePendingState set to FramePendingState::Pending or TentativePending)
+	static inline vector<VulkanWindow*> framePendingWindows;
+
+};
+
+#elif defined(USE_PLATFORM_QT)
+
+// QtRenderingWindow is customized QWindow class for Vulkan rendering
+class QtRenderingWindow : public QWindow {
+public:
+	VulkanWindow* vulkanWindow;
+	int timer = 0;
+	QtRenderingWindow(QWindow* parent, VulkanWindow* vulkanWindow_) : QWindow(parent), vulkanWindow(vulkanWindow_)  {}
+	bool event(QEvent* event) override;
+	void scheduleFrameTimer();
+};
+
+struct qt {
+
+	// Qt global variables
+	static inline aligned_storage<sizeof(QGuiApplication), alignof(QGuiApplication)>::type qGuiApplicationMemory;
+	static inline QGuiApplication* qGuiApplication = nullptr;
+	static inline aligned_storage<sizeof(QVulkanInstance), alignof(QVulkanInstance)>::type qVulkanInstanceMemory;
+	static inline QVulkanInstance* qVulkanInstance = nullptr;
+
+# if !defined(_WIN32)
+	// alternative command line arguments
+	// (if the user does not use VulkanWindow::init(argc, argv),
+	// we get command line arguments by various API functions)
+	static inline vector<char> altArgBuffer;
+	static inline vector<char*> altArgv;
+	static inline int altArgc;
+# endif
+
+};
+
+#endif
+
+
+
+//
+// global functions for various platforms
+//
+#if defined(USE_PLATFORM_WIN32)
 
 // Win32 UTF-8 string to wstring conversion
 static wstring utf8toWString(const string& s)
@@ -318,14 +393,14 @@ static VulkanWindow::KeyCode wchar16ToKeyCode(WCHAR wch16)
 // remove VulkanWindow from framePendingWindows; VulkanWindow MUST be in framePendingWindows
 static void removeFromFramePendingWindows(VulkanWindow* w)
 {
-	if(framePendingWindows.size() != 1) {
-		for(size_t i=0; i<framePendingWindows.size(); i++)
-			if(framePendingWindows[i] == w) {
-				framePendingWindows[i] = framePendingWindows.back();
+	if(win32::framePendingWindows.size() != 1) {
+		for(size_t i=0; i<win32::framePendingWindows.size(); i++)
+			if(win32::framePendingWindows[i] == w) {
+				win32::framePendingWindows[i] = win32::framePendingWindows.back();
 				break;
 			}
 	}
-	framePendingWindows.pop_back();
+	win32::framePendingWindows.pop_back();
 }
 
 static VulkanWindow::ScanCode getScanCodeOfSpecialKey(WPARAM wParam)
@@ -354,14 +429,14 @@ static void initKeyConversionTable()
 		// get scan code
 		int vk = MapVirtualKeyW(scanCode, MAPVK_VSC_TO_VK);
 		if(vk == 0) {
-			keyConversionTable[scanCode] = VulkanWindow::KeyCode::Unknown;
+			win32::keyConversionTable[scanCode] = VulkanWindow::KeyCode::Unknown;
 			continue;
 		}
 
 		// get virtual code
 		int wch16 = (MapVirtualKeyW(vk, MAPVK_VK_TO_CHAR) & 0xffff);
 		if(wch16 == 0) {
-			keyConversionTable[scanCode] = VulkanWindow::KeyCode::Unknown;
+			win32::keyConversionTable[scanCode] = VulkanWindow::KeyCode::Unknown;
 			continue;
 		}
 
@@ -375,7 +450,7 @@ static void initKeyConversionTable()
 			key = VulkanWindow::KeyCode(UnderlyingType(key) + 32);
 
 		// update table
-		keyConversionTable[scanCode] = key;
+		win32::keyConversionTable[scanCode] = key;
 	}
 }
 
@@ -517,17 +592,6 @@ static void* libdecorHandle = nullptr;
 #endif
 
 
-// SDL global variables
-#if defined(USE_PLATFORM_SDL3) || defined(USE_PLATFORM_SDL2)
-static bool sdlInitialized = false;
-static bool running;
-static constexpr const char* windowPointerName = "VulkanWindow";
-#endif
-#if defined(USE_PLATFORM_SDL3)
-static vector<const char*> sdlRequiredExtensions;
-#endif
-
-
 #if defined(USE_PLATFORM_GLFW)
 
 // GLFW error handling
@@ -556,44 +620,8 @@ static bool canUpdateSavedGeometry(GLFWwindow* w)
 	return true;
 };
 
-// bool indicating that application is running and it shall not leave main loop
-static bool running;
-
-// list of windows waiting for frame rendering
-// (the windows have _framePendingState set to FramePendingState::Pending or TentativePending)
-static vector<VulkanWindow*> framePendingWindows;
-
 #endif
 
-
-#if defined(USE_PLATFORM_QT)
-
-// QtRenderingWindow is customized QWindow class for Vulkan rendering
-class QtRenderingWindow : public QWindow {
-public:
-	VulkanWindow* vulkanWindow;
-	int timer = 0;
-	QtRenderingWindow(QWindow* parent, VulkanWindow* vulkanWindow_) : QWindow(parent), vulkanWindow(vulkanWindow_)  {}
-	bool event(QEvent* event) override;
-	void scheduleFrameTimer();
-};
-
-// Qt global variables
-static std::aligned_storage<sizeof(QGuiApplication), alignof(QGuiApplication)>::type qGuiApplicationMemory;
-static QGuiApplication* qGuiApplication = nullptr;
-static std::aligned_storage<sizeof(QVulkanInstance), alignof(QVulkanInstance)>::type qVulkanInstanceMemory;
-static QVulkanInstance* qVulkanInstance = nullptr;
-
-# if !defined(_WIN32)
-// alternative command line arguments
-// (if the user does not use VulkanWindow::init(argc, argv),
-// we get command line arguments by various API functions)
-static vector<char> altArgBuffer;
-static vector<char*> altArgv;
-static int altArgc;
-# endif
-
-#endif
 
 
 #if defined(USE_PLATFORM_WIN32) || (defined(USE_PLATFORM_GLFW) && defined(_WIN32)) || (defined(USE_PLATFORM_QT) && defined(_WIN32))
@@ -870,7 +898,7 @@ void VulkanWindow::init()
 #elif defined(USE_PLATFORM_SDL3)
 
 	// handle multiple init attempts
-	if(sdlInitialized)
+	if(sdl::initialized)
 		return;
 
 	// set hints
@@ -881,7 +909,7 @@ void VulkanWindow::init()
 	// initialize SDL
 	if(!SDL_InitSubSystem(SDL_INIT_VIDEO))
 		throw runtime_error(string("SDL_InitSubSystem(SDL_INIT_VIDEO) function failed. Error details: ") + SDL_GetError());
-	sdlInitialized = true;
+	sdl::initialized = true;
 
 	// initialize Vulkan
 	if(!SDL_Vulkan_LoadLibrary(nullptr))
@@ -890,7 +918,7 @@ void VulkanWindow::init()
 #elif defined(USE_PLATFORM_SDL2)
 
 	// handle multiple init attempts
-	if(sdlInitialized)
+	if(sdl::initialized)
 		return;
 
 	// set hints
@@ -902,7 +930,7 @@ void VulkanWindow::init()
 	// initialize SDL
 	if(SDL_InitSubSystem(SDL_INIT_VIDEO) != 0)
 		throw runtime_error(string("SDL_InitSubSystem(SDL_INIT_VIDEO) function failed. Error details: ") + SDL_GetError());
-	sdlInitialized = true;
+	sdl::initialized = true;
 
 	// initialize Vulkan
 	if(SDL_Vulkan_LoadLibrary(nullptr) != 0)
@@ -917,14 +945,14 @@ void VulkanWindow::init()
 
 #elif defined(USE_PLATFORM_QT)
 
-	if(qGuiApplication)
+	if(qt::qGuiApplication)
 		return;
 
 # if defined(_WIN32)
 
 	// construct QGuiApplication
-	qGuiApplication = reinterpret_cast<QGuiApplication*>(&qGuiApplicationMemory);
-	new(qGuiApplication) QGuiApplication(__argc, __argv);
+	qt::qGuiApplication = reinterpret_cast<QGuiApplication*>(&qt::qGuiApplicationMemory);
+	new(qt::qGuiApplication) QGuiApplication(__argc, __argv);
 
 # else
 
@@ -1142,19 +1170,19 @@ void VulkanWindow::init(void* data)
 	// use data as pointer to
 	// tuple<QGuiApplication*,QVulkanInstance*>
 
-	if(qGuiApplication)
+	if(qt::qGuiApplication)
 		return;
 
 	// get objects from data parameter
 	if(data) {
 		auto& d = *reinterpret_cast<tuple<QGuiApplication*,QVulkanInstance*>*>(data);
-		qGuiApplication = get<0>(d);
-		qVulkanInstance = get<1>(d);
+		qt::qGuiApplication = get<0>(d);
+		qt::qVulkanInstance = get<1>(d);
 	}
 
 	// construct QGuiApplication
 	// using VulkanWindow::init()
-	if(qGuiApplication == nullptr)
+	if(qt::qGuiApplication == nullptr)
 		init();
 
 #else
@@ -1173,12 +1201,12 @@ void VulkanWindow::init(void* data)
 // for QGuiApplication initialization
 void VulkanWindow::init(int& argc, char* argv[])
 {
-	if(qGuiApplication)
+	if(qt::qGuiApplication)
 		return;
 
 	// construct QGuiApplication
-	qGuiApplication = reinterpret_cast<QGuiApplication*>(&qGuiApplicationMemory);
-	new(qGuiApplication) QGuiApplication(argc, argv);
+	qt::qGuiApplication = reinterpret_cast<QGuiApplication*>(&qt::qGuiApplicationMemory);
+	new(qt::qGuiApplication) QGuiApplication(argc, argv);
 }
 
 #else
@@ -1278,10 +1306,10 @@ void VulkanWindow::finalize() noexcept
 #elif defined(USE_PLATFORM_SDL3) || defined(USE_PLATFORM_SDL2)
 
 	// finalize SDL
-	if(sdlInitialized) {
+	if(sdl::initialized) {
 		SDL_QuitSubSystem(SDL_INIT_VIDEO);
 		SDL_Quit();
-		sdlInitialized = false;
+		sdl::initialized = false;
 	}
 
 #elif defined(USE_PLATFORM_GLFW)
@@ -1305,15 +1333,15 @@ void VulkanWindow::finalize() noexcept
 
 	// delete QVulkanInstance object
 	// but only if we own it
-	if(qVulkanInstance == reinterpret_cast<QVulkanInstance*>(&qVulkanInstanceMemory))
-		qVulkanInstance->~QVulkanInstance();
-	qVulkanInstance = nullptr;
+	if(qt::qVulkanInstance == reinterpret_cast<QVulkanInstance*>(&qt::qVulkanInstanceMemory))
+		qt::qVulkanInstance->~QVulkanInstance();
+	qt::qVulkanInstance = nullptr;
 
 	// destroy QGuiApplication object
 	// but only if we own it
-	if(qGuiApplication == reinterpret_cast<QGuiApplication*>(&qGuiApplicationMemory))
-		qGuiApplication->~QGuiApplication();
-	qGuiApplication = nullptr;
+	if(qt::qGuiApplication == reinterpret_cast<QGuiApplication*>(&qt::qGuiApplicationMemory))
+		qt::qGuiApplication->~QGuiApplication();
+	qt::qGuiApplication = nullptr;
 
 #endif
 }
@@ -1497,10 +1525,10 @@ void VulkanWindow::destroy() noexcept
 	// cancel pending frame, if any
 	if(_glfw.framePendingState != FramePendingState::NotPending) {
 		_glfw.framePendingState = FramePendingState::NotPending;
-		for(size_t i=0; i<framePendingWindows.size(); i++)
-			if(framePendingWindows[i] == this) {
-				framePendingWindows[i] = framePendingWindows.back();
-				framePendingWindows.pop_back();
+		for(size_t i=0; i<glfw::framePendingWindows.size(); i++)
+			if(glfw::framePendingWindows[i] == this) {
+				glfw::framePendingWindows[i] = glfw::framePendingWindows.back();
+				glfw::framePendingWindows.pop_back();
 				break;
 			}
 	}
@@ -1526,7 +1554,7 @@ VulkanWindow::VulkanWindow(VulkanWindow&& other) noexcept
 	// update pointers to this object
 	if(_win32.hwnd)
 		SetWindowLongPtr(HWND(_win32.hwnd), 0, LONG_PTR(this));
-	for(VulkanWindow*& w : framePendingWindows)
+	for(VulkanWindow*& w : win32::framePendingWindows)
 		if(w == &other) {
 			w = this;
 			break;
@@ -1584,7 +1612,7 @@ VulkanWindow::VulkanWindow(VulkanWindow&& other) noexcept
 		// update pointer to this object
 		SDL_PropertiesID props = SDL_GetWindowProperties(_sdl.window);
 		assert(props != 0 && "VulkanWindow: SDL_GetWindowProperties() function failed while updating VulkanWindow pointer.");
-		if(!SDL_SetPointerProperty(props, windowPointerName, this))
+		if(!SDL_SetPointerProperty(props, sdl::windowPointerName, this))
 			assert(0 && "VulkanWindow: SDL_SetPointerProperty() function failed while updating VulkanWindow pointer.");
 	}
 
@@ -1596,7 +1624,7 @@ VulkanWindow::VulkanWindow(VulkanWindow&& other) noexcept
 
 	// update pointer to this object
 	if(_sdl.window)
-		SDL_SetWindowData(_sdl.window, windowPointerName, this);
+		SDL_SetWindowData(_sdl.window, sdl::windowPointerName, this);
 
 #elif defined(USE_PLATFORM_GLFW)
 
@@ -1607,7 +1635,7 @@ VulkanWindow::VulkanWindow(VulkanWindow&& other) noexcept
 	// update pointers to this object
 	if(_glfw.window)
 		glfwSetWindowUserPointer(_glfw.window, this);
-	for(VulkanWindow*& w : framePendingWindows)
+	for(VulkanWindow*& w : glfw::framePendingWindows)
 		if(w == &other) {
 			w = this;
 			break;
@@ -1661,7 +1689,7 @@ VulkanWindow& VulkanWindow::operator=(VulkanWindow&& other) noexcept
 	// update pointers to this object
 	if(_win32.hwnd)
 		SetWindowLongPtr(HWND(_win32.hwnd), 0, LONG_PTR(this));
-	for(VulkanWindow*& w : framePendingWindows)
+	for(VulkanWindow*& w : win32::framePendingWindows)
 		if(w == &other) {
 			w = this;
 			break;
@@ -1719,7 +1747,7 @@ VulkanWindow& VulkanWindow::operator=(VulkanWindow&& other) noexcept
 		// set pointer to this
 		SDL_PropertiesID props = SDL_GetWindowProperties(_sdl.window);
 		assert(props != 0 && "VulkanWindow: SDL_GetWindowProperties() function failed while updating VulkanWindow pointer.");
-		if(!SDL_SetPointerProperty(props, windowPointerName, this))
+		if(!SDL_SetPointerProperty(props, sdl::windowPointerName, this))
 			assert(0 && "VulkanWindow: SDL_SetPointerProperty() function failed while updating VulkanWindow pointer.");
 	}
 
@@ -1731,7 +1759,7 @@ VulkanWindow& VulkanWindow::operator=(VulkanWindow&& other) noexcept
 
 	// set pointer to this
 	if(_sdl.window)
-		SDL_SetWindowData(_sdl.window, windowPointerName, this);
+		SDL_SetWindowData(_sdl.window, sdl::windowPointerName, this);
 
 #elif defined(USE_PLATFORM_GLFW)
 
@@ -1742,7 +1770,7 @@ VulkanWindow& VulkanWindow::operator=(VulkanWindow&& other) noexcept
 	// update pointers to this object
 	if(_glfw.window)
 		glfwSetWindowUserPointer(_glfw.window, this);
-	for(VulkanWindow*& w : framePendingWindows)
+	for(VulkanWindow*& w : glfw::framePendingWindows)
 		if(w == &other) {
 			w = this;
 			break;
@@ -1809,9 +1837,9 @@ VkSurfaceKHR VulkanWindow::createInternal(VkInstance instance, VkExtent2D surfac
 #elif defined(USE_PLATFORM_WAYLAND)
 	assert(wayland::display && "VulkanWindow class was not initialized. Call VulkanWindow::init() before VulkanWindow::create().");
 #elif defined(USE_PLATFORM_SDL3) || defined(USE_PLATFORM_SDL2)
-	assert(sdlInitialized && "VulkanWindow class was not initialized. Call VulkanWindow::init() before VulkanWindow::create().");
+	assert(sdl::initialized && "VulkanWindow class was not initialized. Call VulkanWindow::init() before VulkanWindow::create().");
 #elif defined(USE_PLATFORM_QT)
-	assert(qGuiApplication && "VulkanWindow class was not initialized. Call VulkanWindow::init() before VulkanWindow::create().");
+	assert(qt::qGuiApplication && "VulkanWindow class was not initialized. Call VulkanWindow::init() before VulkanWindow::create().");
 #endif
 
 	// set Vulkan instance
@@ -2008,7 +2036,7 @@ VkSurfaceKHR VulkanWindow::createInternal(VkInstance instance, VkExtent2D surfac
 	SDL_PropertiesID props = SDL_GetWindowProperties(_sdl.window);
 	if(props == 0)
 		throw runtime_error(string("VulkanWindow: SDL_GetWindowProperties() function failed. Error details: ") + SDL_GetError());
-	if(!SDL_SetPointerProperty(props, windowPointerName, this))
+	if(!SDL_SetPointerProperty(props, sdl::windowPointerName, this))
 		throw runtime_error(string("VulkanWindow: SDL_SetPointerProperty() function failed. Error details: ") + SDL_GetError());
 
 	// create surface
@@ -2036,7 +2064,7 @@ VkSurfaceKHR VulkanWindow::createInternal(VkInstance instance, VkExtent2D surfac
 		throw runtime_error(string("VulkanWindow: SDL_CreateWindow() function failed. Error details: ") + SDL_GetError());
 
 	// set pointer to this
-	SDL_SetWindowData(_sdl.window, windowPointerName, this);
+	SDL_SetWindowData(_sdl.window, sdl::windowPointerName, this);
 
 	// create surface
 	if(!SDL_Vulkan_CreateSurface(_sdl.window, VkInstance(instance), reinterpret_cast<VkSurfaceKHR*>(&_surface)))
@@ -2094,10 +2122,10 @@ VkSurfaceKHR VulkanWindow::createInternal(VkInstance instance, VkExtent2D surfac
 				// cancel pending frame, if any, on window minimalization
 				if(w->_glfw.framePendingState != FramePendingState::NotPending) {
 					w->_glfw.framePendingState = FramePendingState::NotPending;
-					for(size_t i=0; i<framePendingWindows.size(); i++)
-						if(framePendingWindows[i] == w) {
-							framePendingWindows[i] = framePendingWindows.back();
-							framePendingWindows.pop_back();
+					for(size_t i=0; i<glfw::framePendingWindows.size(); i++)
+						if(glfw::framePendingWindows[i] == w) {
+							glfw::framePendingWindows[i] = glfw::framePendingWindows.back();
+							glfw::framePendingWindows.pop_back();
 							break;
 						}
 				}
@@ -2223,17 +2251,17 @@ VkSurfaceKHR VulkanWindow::createInternal(VkInstance instance, VkExtent2D surfac
 #elif defined(USE_PLATFORM_QT)
 
 	// create QVulkanInstance
-	if(qVulkanInstance == nullptr) {
-		qVulkanInstance = reinterpret_cast<QVulkanInstance*>(&qVulkanInstanceMemory);
-		new(qVulkanInstance) QVulkanInstance;
-		qVulkanInstance->setVkInstance(instance);
-		qVulkanInstance->create();
+	if(qt::qVulkanInstance == nullptr) {
+		qt::qVulkanInstance = reinterpret_cast<QVulkanInstance*>(&qt::qVulkanInstanceMemory);
+		new(qt::qVulkanInstance) QVulkanInstance;
+		qt::qVulkanInstance->setVkInstance(instance);
+		qt::qVulkanInstance->create();
 	}
 
 	// setup QtRenderingWindow
 	_qt.window = new QtRenderingWindow(nullptr, this);
 	_qt.window->setSurfaceType(QSurface::VulkanSurface);
-	_qt.window->setVulkanInstance(qVulkanInstance);
+	_qt.window->setVulkanInstance(qt::qVulkanInstance);
 	_qt.window->resize(surfaceExtent.width, surfaceExtent.height);
 	_qt.window->create();
 
@@ -2365,10 +2393,10 @@ void VulkanWindow::renderFrame()
 	_frameCallback(*this);
 #else
 # if (QT_VERSION >= QT_VERSION_CHECK(5, 15, 0))
-	qVulkanInstance->presentAboutToBeQueued(_qt.window);
+	qt::qVulkanInstance->presentAboutToBeQueued(_qt.window);
 # endif
 	_frameCallback(*this);
-	qVulkanInstance->presentQueued(_qt.window);
+	qt::qVulkanInstance->presentQueued(_qt.window);
 #endif
 }
 
@@ -2514,9 +2542,9 @@ LRESULT VulkanWindowPrivate::wndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
 			// starving all other windows => we render all windows in framePendingWindows list)
 			VulkanWindow* window = reinterpret_cast<VulkanWindow*>(GetWindowLongPtr(hwnd, 0));
 			bool windowProcessed = false;
-			for(size_t i=0; i<framePendingWindows.size(); ) {
+			for(size_t i=0; i<win32::framePendingWindows.size(); ) {
 
-				VulkanWindowPrivate* w = static_cast<VulkanWindowPrivate*>(framePendingWindows[i]);
+				VulkanWindowPrivate* w = static_cast<VulkanWindowPrivate*>(win32::framePendingWindows[i]);
 				if(w == window)
 					windowProcessed = true;
 
@@ -2534,13 +2562,13 @@ LRESULT VulkanWindowPrivate::wndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
 
 					// update state to no-frame-pending
 					w->_win32.framePendingState = FramePendingState::NotPending;
-					if(framePendingWindows.size() == 1) {
-						framePendingWindows.clear();  // all iterators are invalidated
+					if(win32::framePendingWindows.size() == 1) {
+						win32::framePendingWindows.clear();  // all iterators are invalidated
 						break;
 					}
 					else {
-						framePendingWindows[i] = framePendingWindows.back();
-						framePendingWindows.pop_back();  // end() iterator is invalidated
+						win32::framePendingWindows[i] = win32::framePendingWindows.back();
+						win32::framePendingWindows.pop_back();  // end() iterator is invalidated
 						continue;
 					}
 				}
@@ -2686,7 +2714,7 @@ LRESULT VulkanWindowPrivate::wndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
 				// key code
 				KeyCode keyCode;
 				if(nativeScanCode < 128)
-					keyCode = keyConversionTable[nativeScanCode];
+					keyCode = win32::keyConversionTable[nativeScanCode];
 				else
 				{
 					UINT nativeKeyCode = wParam & 0xff;
@@ -2714,7 +2742,7 @@ LRESULT VulkanWindowPrivate::wndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
 				// key code
 				KeyCode key;
 				if(nativeScanCode < 128)
-					key = keyConversionTable[nativeScanCode];
+					key = win32::keyConversionTable[nativeScanCode];
 				else
 				{
 					UINT nativeKeyCode = wParam & 0xff;
@@ -2769,7 +2797,7 @@ LRESULT VulkanWindowPrivate::wndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
 				// restore frame pending state
 				if(w->_win32.hiddenWindowFramePending) {
 					w->_win32.framePendingState = FramePendingState::Pending;
-					framePendingWindows.push_back(w);
+					win32::framePendingWindows.push_back(w);
 				}
 
 			}
@@ -2834,7 +2862,7 @@ void VulkanWindow::scheduleFrame()
 		if(!InvalidateRect(HWND(_win32.hwnd), NULL, FALSE))
 			throw runtime_error("InvalidateRect(): The function failed.");
 
-		framePendingWindows.push_back(this);
+		win32::framePendingWindows.push_back(this);
 	}
 
 	_win32.framePendingState = FramePendingState::Pending;
@@ -3766,18 +3794,18 @@ void VulkanWindowPrivate::keyboardListenerModifiers(void* data, wl_keyboard* key
 const vector<const char*>& VulkanWindow::requiredExtensions()
 {
 	// SDL must be initialized to call this function
-	assert(sdlInitialized && "VulkanWindow::init() must be called before calling VulkanWindow::requiredExtensions().");
+	assert(sdl::initialized && "VulkanWindow::init() must be called before calling VulkanWindow::requiredExtensions().");
 
 	// get required instance extensions
 	Uint32 count;
 	const char* const* p = SDL_Vulkan_GetInstanceExtensions(&count);
 	if(p == nullptr)
 		throw runtime_error("VulkanWindow: SDL_Vulkan_GetInstanceExtensions() function failed.");
-	sdlRequiredExtensions.clear();
-	sdlRequiredExtensions.reserve(count);
+	sdl::requiredInstanceExtensions.clear();
+	sdl::requiredInstanceExtensions.reserve(count);
 	for(Uint32 i=0; i<count; i++)
-		sdlRequiredExtensions.emplace_back(p[i]);
-	return sdlRequiredExtensions;
+		sdl::requiredInstanceExtensions.emplace_back(p[i]);
+	return sdl::requiredInstanceExtensions;
 }
 
 
@@ -3871,7 +3899,7 @@ void VulkanWindow::mainLoop()
 
 	// main loop
 	SDL_Event event;
-	running = true;
+	sdl::running = true;
 	do {
 
 		// get event
@@ -3886,7 +3914,7 @@ void VulkanWindow::mainLoop()
 				SDL_PropertiesID props = SDL_GetWindowProperties(w);
 				if(props == 0)
 					throw runtime_error(string("VulkanWindow: SDL_GetWindowProperties() function failed. Error details: ") + SDL_GetError());
-				void* p = SDL_GetPointerProperty(props, windowPointerName, nullptr);
+				void* p = SDL_GetPointerProperty(props, sdl::windowPointerName, nullptr);
 				if(p == nullptr)
 					throw runtime_error(string("VulkanWindow: The property holding VulkanWindow pointer not set for the SDL_Window."));
 				return reinterpret_cast<VulkanWindow*>(p);
@@ -4035,13 +4063,13 @@ void VulkanWindow::mainLoop()
 			return;
 		}
 
-	} while(running);
+	} while(sdl::running);
 }
 
 
 void VulkanWindow::exitMainLoop()
 {
-	running = false;
+	sdl::running = false;
 }
 
 
@@ -4077,7 +4105,7 @@ void VulkanWindow::scheduleFrame()
 const vector<const char*>& VulkanWindow::requiredExtensions()
 {
 	// SDL must be initialized to call this function
-	assert(sdlInitialized && "VulkanWindow::init() must be called before calling VulkanWindow::requiredExtensions().");
+	assert(sdl::initialized && "VulkanWindow::init() must be called before calling VulkanWindow::requiredExtensions().");
 
 	// cache the result in static local variable
 	// so extension list is constructed only once
@@ -4189,7 +4217,7 @@ void VulkanWindow::mainLoop()
 
 	// main loop
 	SDL_Event event;
-	running = true;
+	sdl::running = true;
 	do {
 
 		// get event
@@ -4207,7 +4235,7 @@ void VulkanWindow::mainLoop()
 
 			case SDL_WINDOWEVENT_EXPOSED: {
 				VulkanWindow* w = reinterpret_cast<VulkanWindow*>(
-					SDL_GetWindowData(SDL_GetWindowFromID(event.window.windowID), windowPointerName));
+					SDL_GetWindowData(SDL_GetWindowFromID(event.window.windowID), sdl::windowPointerName));
 				w->_sdl.framePending = false;
 				if(w->_sdl.visible && !w->_sdl.minimized)
 					w->renderFrame();
@@ -4217,7 +4245,7 @@ void VulkanWindow::mainLoop()
 			case SDL_WINDOWEVENT_SIZE_CHANGED: {
 				cout << "Size changed event" << endl;
 				VulkanWindow* w = reinterpret_cast<VulkanWindow*>(
-					SDL_GetWindowData(SDL_GetWindowFromID(event.window.windowID), windowPointerName));
+					SDL_GetWindowData(SDL_GetWindowFromID(event.window.windowID), sdl::windowPointerName));
 				w->scheduleResize();
 				break;
 			}
@@ -4225,7 +4253,7 @@ void VulkanWindow::mainLoop()
 			case SDL_WINDOWEVENT_SHOWN: {
 				cout << "Shown event" << endl;
 				VulkanWindow* w = reinterpret_cast<VulkanWindow*>(
-					SDL_GetWindowData(SDL_GetWindowFromID(event.window.windowID), windowPointerName));
+					SDL_GetWindowData(SDL_GetWindowFromID(event.window.windowID), sdl::windowPointerName));
 				w->_sdl.visible = true;
 				w->_sdl.minimized = false;
 				if(w->_sdl.hiddenWindowFramePending) {
@@ -4238,7 +4266,7 @@ void VulkanWindow::mainLoop()
 			case SDL_WINDOWEVENT_HIDDEN: {
 				cout << "Hidden event" << endl;
 				VulkanWindow* w = reinterpret_cast<VulkanWindow*>(
-					SDL_GetWindowData(SDL_GetWindowFromID(event.window.windowID), windowPointerName));
+					SDL_GetWindowData(SDL_GetWindowFromID(event.window.windowID), sdl::windowPointerName));
 				w->_sdl.visible = false;
 				if(w->_sdl.framePending) {
 					w->_sdl.hiddenWindowFramePending = true;
@@ -4250,7 +4278,7 @@ void VulkanWindow::mainLoop()
 			case SDL_WINDOWEVENT_MINIMIZED: {
 				cout << "Minimized event" << endl;
 				VulkanWindow* w = reinterpret_cast<VulkanWindow*>(
-					SDL_GetWindowData(SDL_GetWindowFromID(event.window.windowID), windowPointerName));
+					SDL_GetWindowData(SDL_GetWindowFromID(event.window.windowID), sdl::windowPointerName));
 				w->_sdl.minimized = true;
 				if(w->_sdl.framePending) {
 					w->_sdl.hiddenWindowFramePending = true;
@@ -4262,7 +4290,7 @@ void VulkanWindow::mainLoop()
 			case SDL_WINDOWEVENT_RESTORED: {
 				cout << "Restored event" << endl;
 				VulkanWindow* w = reinterpret_cast<VulkanWindow*>(
-					SDL_GetWindowData(SDL_GetWindowFromID(event.window.windowID), windowPointerName));
+					SDL_GetWindowData(SDL_GetWindowFromID(event.window.windowID), sdl::windowPointerName));
 				w->_sdl.minimized = false;
 				if(w->_sdl.hiddenWindowFramePending) {
 					w->_sdl.hiddenWindowFramePending = false;
@@ -4274,7 +4302,7 @@ void VulkanWindow::mainLoop()
 			case SDL_WINDOWEVENT_CLOSE: {
 				cout << "Close event" << endl;
 				VulkanWindow* w = reinterpret_cast<VulkanWindow*>(
-					SDL_GetWindowData(SDL_GetWindowFromID(event.window.windowID), windowPointerName));
+					SDL_GetWindowData(SDL_GetWindowFromID(event.window.windowID), sdl::windowPointerName));
 				if(w->_closeCallback)
 					w->_closeCallback(*w);  // VulkanWindow object might be already destroyed when returning from the callback
 				else {
@@ -4289,14 +4317,14 @@ void VulkanWindow::mainLoop()
 
 		case SDL_MOUSEMOTION: {
 			VulkanWindow* w = reinterpret_cast<VulkanWindow*>(
-				SDL_GetWindowData(SDL_GetWindowFromID(event.motion.windowID), windowPointerName));
+				SDL_GetWindowData(SDL_GetWindowFromID(event.motion.windowID), sdl::windowPointerName));
 			handleModifiers(w);
 			handleMouseMove(w, float(event.motion.x), float(event.motion.y));
 			break;
 		}
 		case SDL_MOUSEBUTTONDOWN: {
 			VulkanWindow* w = reinterpret_cast<VulkanWindow*>(
-				SDL_GetWindowData(SDL_GetWindowFromID(event.button.windowID), windowPointerName));
+				SDL_GetWindowData(SDL_GetWindowFromID(event.button.windowID), sdl::windowPointerName));
 			handleModifiers(w);
 			handleMouseMove(w, float(event.button.x), float(event.button.y));
 			handleMouseButton(w, event, ButtonState::Pressed);
@@ -4304,7 +4332,7 @@ void VulkanWindow::mainLoop()
 		}
 		case SDL_MOUSEBUTTONUP: {
 			VulkanWindow* w = reinterpret_cast<VulkanWindow*>(
-				SDL_GetWindowData(SDL_GetWindowFromID(event.button.windowID), windowPointerName));
+				SDL_GetWindowData(SDL_GetWindowFromID(event.button.windowID), sdl::windowPointerName));
 			handleModifiers(w);
 			handleMouseMove(w, float(event.button.x), float(event.button.y));
 			handleMouseButton(w, event, ButtonState::Released);
@@ -4313,7 +4341,7 @@ void VulkanWindow::mainLoop()
 		case SDL_MOUSEWHEEL:
 		{
 			VulkanWindow* w = reinterpret_cast<VulkanWindow*>(
-				SDL_GetWindowData(SDL_GetWindowFromID(event.button.windowID), windowPointerName));
+				SDL_GetWindowData(SDL_GetWindowFromID(event.button.windowID), sdl::windowPointerName));
 
 			if(w->_mouseWheelCallback)
 			{
@@ -4335,7 +4363,7 @@ void VulkanWindow::mainLoop()
 
 		case SDL_KEYDOWN: {
 			VulkanWindow* w = reinterpret_cast<VulkanWindow*>(
-				SDL_GetWindowData(SDL_GetWindowFromID(event.key.windowID), windowPointerName));
+				SDL_GetWindowData(SDL_GetWindowFromID(event.key.windowID), sdl::windowPointerName));
 			if(w->_keyCallback && event.key.repeat == 0)
 			{
 				ScanCode scanCode = translateScanCode(event.key.keysym.scancode);
@@ -4346,7 +4374,7 @@ void VulkanWindow::mainLoop()
 		}
 		case SDL_KEYUP: {
 			VulkanWindow* w = reinterpret_cast<VulkanWindow*>(
-				SDL_GetWindowData(SDL_GetWindowFromID(event.key.windowID), windowPointerName));
+				SDL_GetWindowData(SDL_GetWindowFromID(event.key.windowID), sdl::windowPointerName));
 			if(w->_keyCallback && event.key.repeat == 0)
 			{
 				ScanCode scanCode = translateScanCode(event.key.keysym.scancode);
@@ -4363,13 +4391,13 @@ void VulkanWindow::mainLoop()
 			return;
 		}
 
-	} while(running);
+	} while(sdl::running);
 }
 
 
 void VulkanWindow::exitMainLoop()
 {
-	running = false;
+	sdl::running = false;
 }
 
 
@@ -4465,10 +4493,10 @@ void VulkanWindow::hide()
 	// cancel pending frame, if any, on window hide
 	if(_glfw.framePendingState != FramePendingState::NotPending) {
 		_glfw.framePendingState = FramePendingState::NotPending;
-		for(size_t i=0; i<framePendingWindows.size(); i++)
-			if(framePendingWindows[i] == this) {
-				framePendingWindows[i] = framePendingWindows.back();
-				framePendingWindows.pop_back();
+		for(size_t i=0; i<glfw::framePendingWindows.size(); i++)
+			if(glfw::framePendingWindows[i] == this) {
+				glfw::framePendingWindows[i] = glfw::framePendingWindows.back();
+				glfw::framePendingWindows.pop_back();
 				break;
 			}
 	}
@@ -4478,10 +4506,10 @@ void VulkanWindow::hide()
 void VulkanWindow::mainLoop()
 {
 	// main loop
-	running = true;
+	glfw::running = true;
 	do {
 
-		if(framePendingWindows.empty())
+		if(glfw::framePendingWindows.empty())
 		{
 			glfwWaitEvents();
 			checkError("glfwWaitEvents");
@@ -4493,10 +4521,10 @@ void VulkanWindow::mainLoop()
 		}
 
 		// render all windows with _framePendingState set to Pending
-		for(size_t i=0; i<framePendingWindows.size(); ) {
+		for(size_t i=0; i<glfw::framePendingWindows.size(); ) {
 
 			// render frame
-			VulkanWindow* w = framePendingWindows[i];
+			VulkanWindow* w = glfw::framePendingWindows[i];
 			w->_glfw.framePendingState = FramePendingState::TentativePending;
 			w->renderFrame();
 
@@ -4506,13 +4534,13 @@ void VulkanWindow::mainLoop()
 
 				// update state to no-frame-pending
 				w->_glfw.framePendingState = FramePendingState::NotPending;
-				if(framePendingWindows.size() == 1) {
-					framePendingWindows.clear();  // all iterators are invalidated
+				if(glfw::framePendingWindows.size() == 1) {
+					glfw::framePendingWindows.clear();  // all iterators are invalidated
 					break;
 				}
 				else {
-					framePendingWindows[i] = framePendingWindows.back();
-					framePendingWindows.pop_back();  // end() iterator is invalidated
+					glfw::framePendingWindows[i] = glfw::framePendingWindows.back();
+					glfw::framePendingWindows.pop_back();  // end() iterator is invalidated
 					continue;
 				}
 			}
@@ -4520,13 +4548,13 @@ void VulkanWindow::mainLoop()
 
 		}
 
-	} while(running);
+	} while(glfw::running);
 }
 
 
 void VulkanWindow::exitMainLoop()
 {
-	running = false;
+	glfw::running = false;
 }
 
 
@@ -4539,7 +4567,7 @@ void VulkanWindow::scheduleFrame()
 		return;
 
 	if(_glfw.framePendingState == FramePendingState::NotPending)
-		framePendingWindows.push_back(this);
+		glfw::framePendingWindows.push_back(this);
 
 	_glfw.framePendingState = FramePendingState::Pending;
 }
