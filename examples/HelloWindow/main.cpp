@@ -42,11 +42,11 @@ public:
 	vk::SwapchainKHR swapchain;
 	vector<vk::ImageView> swapchainImageViews;
 	vector<vk::Framebuffer> framebuffers;
+	vector<vk::Semaphore> renderingFinishedSemaphores;
+	vk::Semaphore imageAvailableSemaphore;
+	vk::Fence renderFinishedFence;
 	vk::CommandPool commandPool;
 	vk::CommandBuffer commandBuffer;
-	vk::Semaphore imageAvailableSemaphore;
-	vk::Semaphore renderFinishedSemaphore;
-	vk::Fence renderFinishedFence;
 
 };
 
@@ -71,10 +71,10 @@ App::~App()
 
 		// destroy handles
 		// (the handles are destructed in certain (not arbitrary) order)
-		device.destroy(renderFinishedFence);
-		device.destroy(renderFinishedSemaphore);
-		device.destroy(imageAvailableSemaphore);
 		device.destroy(commandPool);
+		device.destroy(renderFinishedFence);
+		device.destroy(imageAvailableSemaphore);
+		for(auto s : renderingFinishedSemaphores)  device.destroy(s);
 		for(auto f : framebuffers)  device.destroy(f);
 		for(auto v : swapchainImageViews)  device.destroy(v);
 		device.destroy(swapchain);
@@ -345,14 +345,8 @@ void App::init()
 			)
 		)[0];
 
-	// rendering semaphores and fences
+	// rendering semaphore and fence
 	imageAvailableSemaphore =
-		device.createSemaphore(
-			vk::SemaphoreCreateInfo(
-				vk::SemaphoreCreateFlags()  // flags
-			)
-		);
-	renderFinishedSemaphore =
 		device.createSemaphore(
 			vk::SemaphoreCreateInfo(
 				vk::SemaphoreCreateFlags()  // flags
@@ -451,6 +445,20 @@ void App::resize(VulkanWindow&, const vk::SurfaceCapabilitiesKHR& surfaceCapabil
 				)
 			)
 		);
+
+	// rendering finished semaphores
+	if(renderingFinishedSemaphores.size() != swapchainImages.size())
+	{
+		for(auto s : renderingFinishedSemaphores)  device.destroy(s);
+		renderingFinishedSemaphores.clear();
+		renderingFinishedSemaphores.reserve(swapchainImages.size());
+		vk::SemaphoreCreateInfo semaphoreCreateInfo{
+			vk::SemaphoreCreateFlags()  // flags
+		};
+		for(size_t i=0,c=swapchainImages.size(); i<c; i++)
+			renderingFinishedSemaphores.emplace_back(
+				device.createSemaphore(semaphoreCreateInfo));
+	}
 }
 
 
@@ -519,6 +527,7 @@ void App::frame(VulkanWindow&)
 	commandBuffer.end();
 
 	// submit frame
+	vk::Semaphore renderingFinishedSemaphore = renderingFinishedSemaphores[imageIndex];
 	graphicsQueue.submit(
 		vk::ArrayProxy<const vk::SubmitInfo>(
 			1,
@@ -527,7 +536,7 @@ void App::frame(VulkanWindow&)
 				&(const vk::PipelineStageFlags&)vk::PipelineStageFlags(  // pWaitDstStageMask
 					vk::PipelineStageFlagBits::eColorAttachmentOutput),
 				1, &commandBuffer,  // commandBufferCount + pCommandBuffers
-				1, &renderFinishedSemaphore  // signalSemaphoreCount + pSignalSemaphores
+				1, &renderingFinishedSemaphore  // signalSemaphoreCount + pSignalSemaphores
 			)
 		),
 		renderFinishedFence  // fence
@@ -537,7 +546,7 @@ void App::frame(VulkanWindow&)
 	r =
 		presentationQueue.presentKHR(
 			&(const vk::PresentInfoKHR&)vk::PresentInfoKHR(
-				1, &renderFinishedSemaphore,  // waitSemaphoreCount + pWaitSemaphores
+				1, &renderingFinishedSemaphore,  // waitSemaphoreCount + pWaitSemaphores
 				1, &swapchain, &imageIndex,  // swapchainCount + pSwapchains + pImageIndices
 				nullptr  // pResults
 			)
