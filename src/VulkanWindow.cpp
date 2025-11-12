@@ -177,6 +177,7 @@ struct libdecor_frame_workaround {  // taken from libdecor-plugin.h to workaroun
 using namespace std;
 
 
+
 class VulkanWindowPrivate : public VulkanWindow {
 public:
 #if defined(USE_PLATFORM_WIN32)
@@ -248,6 +249,9 @@ struct xlib {
 
 	// xlib global variables
 	static inline struct _XDisplay* display = nullptr;  // struct _XDisplay* is used instead of Display* type
+	static inline bool externalDisplayHandle;
+	static inline map<Window, VulkanWindow*> vulkanWindowMap;
+	static inline bool running;  // bool indicating that application is running and it shall not leave main loop
 	static inline unsigned long wmDeleteMessage;  // unsigned long is used for Atom type
 	static inline unsigned long wmStateProperty;  // unsigned long is used for Atom type
 	static inline unsigned long netWmName;  // unsigned long is used for Atom type
@@ -266,7 +270,10 @@ const char* const* VulkanWindow::requiredExtensionNames()  { return xlib::requir
 #elif defined(USE_PLATFORM_WAYLAND)
 
 struct wayland {
+
+	// Wayland global variables
 	static inline struct wl_display* display = nullptr;
+	static inline bool externalDisplayHandle;
 	static inline struct wl_registry* registry;
 	static inline struct wl_compositor* compositor = nullptr;
 	static inline struct xdg_wm_base* xdgWmBase = nullptr;
@@ -283,9 +290,41 @@ struct wayland {
 	static inline struct xkb_context* xkbContext = nullptr;
 	static inline struct xkb_state* xkbState = nullptr;
 	static inline std::bitset<16> modifiers;
-
+	static inline bool running;  // bool indicating that application is running and it shall not leave main loop
+	static inline VulkanWindowPrivate* windowUnderPointer = nullptr;
+	static inline VulkanWindowPrivate* windowWithKbFocus = nullptr;
+	static inline const char* vulkanWindowTag = "VulkanWindow";
 	static inline const vector<const char*> requiredInstanceExtensions =
 		{ "VK_KHR_surface", "VK_KHR_wayland_surface" };
+
+	// libdecor functions (dynamically linked)
+	struct Funcs {
+		struct libdecor* (*libdecor_new)(struct wl_display* display, const struct libdecor_interface* iface);
+		void (*libdecor_unref)(struct libdecor* context);
+		void (*libdecor_frame_unref)(struct libdecor_frame* frame);
+		void (*libdecor_frame_set_user_data)(struct libdecor_frame* frame, void* user_data);
+		struct libdecor_frame* (*libdecor_decorate)(struct libdecor* context, struct wl_surface* surface,
+			const struct libdecor_frame_interface* iface, void* user_data);
+		void (*libdecor_frame_set_title)(struct libdecor_frame* frame, const char* title);
+		void (*libdecor_frame_set_minimized)(struct libdecor_frame* frame);
+		void (*libdecor_frame_set_maximized)(struct libdecor_frame* frame);
+		void (*libdecor_frame_unset_maximized)(struct libdecor_frame* frame);
+		void (*libdecor_frame_set_fullscreen)(struct libdecor_frame *frame, struct wl_output *output);
+		void (*libdecor_frame_unset_fullscreen)(struct libdecor_frame *frame);
+		void (*libdecor_frame_map)(struct libdecor_frame* frame);
+		bool (*libdecor_configuration_get_window_state)(struct libdecor_configuration* configuration,
+			enum libdecor_window_state* window_state);
+		bool (*libdecor_configuration_get_content_size)(struct libdecor_configuration* configuration,
+			struct libdecor_frame* frame, int* width, int* height);
+		struct libdecor_state* (*libdecor_state_new)(int width, int height);
+		void (*libdecor_frame_commit)(struct libdecor_frame* frame,
+			struct libdecor_state* state, struct libdecor_configuration* configuration);
+		void (*libdecor_state_free)(struct libdecor_state* state);
+		int (*libdecor_dispatch)(struct libdecor* context, int timeout);
+	};
+	static inline Funcs funcs;
+	static inline void* libdecorHandle = nullptr;
+
 };
 
 // required instance extensions functions
@@ -454,25 +493,7 @@ static void initKeyConversionTable()
 	}
 }
 
-#endif
-
-
-// Xlib global variables
-#if defined(USE_PLATFORM_XLIB)
-static bool externalDisplayHandle;
-static map<Window, VulkanWindow*> vulkanWindowMap;
-static bool running;  // bool indicating that application is running and it shall not leave main loop
-#endif
-
-
-#if defined(USE_PLATFORM_WAYLAND)
-
-// Wayland global variables
-static bool externalDisplayHandle;
-static bool running;  // bool indicating that application is running and it shall not leave main loop
-static VulkanWindowPrivate* windowUnderPointer = nullptr;
-static VulkanWindowPrivate* windowWithKbFocus = nullptr;
-static const char* vulkanWindowTag = "VulkanWindow";
+#elif defined(USE_PLATFORM_WAYLAND)
 
 // listeners
 static const wl_registry_listener registryListener{
@@ -561,38 +582,7 @@ static void waitAllSyncEvents(unsigned& numSyncEventsOnTheFly)
 			throw runtime_error("wl_display_dispatch() failed.");
 }
 
-// libdecor functions
-struct Funcs {
-	struct libdecor* (*libdecor_new)(struct wl_display* display, const struct libdecor_interface* iface);
-	void (*libdecor_unref)(struct libdecor* context);
-	void (*libdecor_frame_unref)(struct libdecor_frame* frame);
-	void (*libdecor_frame_set_user_data)(struct libdecor_frame* frame, void* user_data);
-	struct libdecor_frame* (*libdecor_decorate)(struct libdecor* context, struct wl_surface* surface,
-		const struct libdecor_frame_interface* iface, void* user_data);
-	void (*libdecor_frame_set_title)(struct libdecor_frame* frame, const char* title);
-	void (*libdecor_frame_set_minimized)(struct libdecor_frame* frame);
-	void (*libdecor_frame_set_maximized)(struct libdecor_frame* frame);
-	void (*libdecor_frame_unset_maximized)(struct libdecor_frame* frame);
-	void (*libdecor_frame_set_fullscreen)(struct libdecor_frame *frame, struct wl_output *output);
-	void (*libdecor_frame_unset_fullscreen)(struct libdecor_frame *frame);
-	void (*libdecor_frame_map)(struct libdecor_frame* frame);
-	bool (*libdecor_configuration_get_window_state)(struct libdecor_configuration* configuration,
-		enum libdecor_window_state* window_state);
-	bool (*libdecor_configuration_get_content_size)(struct libdecor_configuration* configuration,
-		struct libdecor_frame* frame, int* width, int* height);
-	struct libdecor_state* (*libdecor_state_new)(int width, int height);
-	void (*libdecor_frame_commit)(struct libdecor_frame* frame,
-		struct libdecor_state* state, struct libdecor_configuration* configuration);
-	void (*libdecor_state_free)(struct libdecor_state* state);
-	int (*libdecor_dispatch)(struct libdecor* context, int timeout);
-};
-static Funcs funcs;
-static void* libdecorHandle = nullptr;
-
-#endif
-
-
-#if defined(USE_PLATFORM_GLFW)
+#elif defined(USE_PLATFORM_GLFW)
 
 // GLFW error handling
 static void throwError(const string& funcName)
@@ -883,7 +873,7 @@ void VulkanWindow::init()
 	xlib::display = XOpenDisplay(nullptr);
 	if(xlib::display == nullptr)
 		throw runtime_error("Can not open display. No X-server running or wrong DISPLAY variable.");
-	externalDisplayHandle = false;
+	xlib::externalDisplayHandle = false;
 
 	// get atoms
 	xlib::wmDeleteMessage = XInternAtom(xlib::display, "WM_DELETE_WINDOW", False);
@@ -997,7 +987,7 @@ void VulkanWindow::init(void* data)
 
 		// use data as Display* handle
 		xlib::display = reinterpret_cast<Display*>(data);
-		externalDisplayHandle = true;
+		xlib::externalDisplayHandle = true;
 
 	}
 	else {
@@ -1006,7 +996,7 @@ void VulkanWindow::init(void* data)
 		xlib::display = XOpenDisplay(nullptr);
 		if(xlib::display == nullptr)
 			throw runtime_error("Can not open display. No X-server running or wrong DISPLAY variable.");
-		externalDisplayHandle = false;
+		xlib::externalDisplayHandle = false;
 
 	}
 
@@ -1025,7 +1015,7 @@ void VulkanWindow::init(void* data)
 
 	if(data) {
 		wayland::display = reinterpret_cast<wl_display*>(data);
-		externalDisplayHandle = true;
+		wayland::externalDisplayHandle = true;
 	}
 	else {
 
@@ -1033,7 +1023,7 @@ void VulkanWindow::init(void* data)
 		wayland::display = wl_display_connect(nullptr);
 		if(wayland::display == nullptr)
 			throw runtime_error("Cannot connect to Wayland display. No Wayland server is running or invalid WAYLAND_DISPLAY variable.");
-		externalDisplayHandle = false;
+		wayland::externalDisplayHandle = false;
 
 	}
 
@@ -1071,51 +1061,51 @@ void VulkanWindow::init(void* data)
 	if(!wayland::zxdgDecorationManagerV1) {
 
 		// load libdecor library
-		libdecorHandle = dlopen("libdecor-0.so.0", RTLD_NOW);
-		if(libdecorHandle == nullptr)
+		wayland::libdecorHandle = dlopen("libdecor-0.so.0", RTLD_NOW);
+		if(wayland::libdecorHandle == nullptr)
 			throw runtime_error("Cannot activate window decorations. There is no support for server-side decorations "
 			                    "in Wayland server (zxdg_decoration_manager_v1 protocol required) and "
 			                    "cannot open libdecor-0.so.0 library for client-side decorations.");
 
 		// function pointers
-		reinterpret_cast<void*&>(funcs.libdecor_new)                 = dlsym(libdecorHandle, "libdecor_new");
-		reinterpret_cast<void*&>(funcs.libdecor_unref)               = dlsym(libdecorHandle, "libdecor_unref");
-		reinterpret_cast<void*&>(funcs.libdecor_frame_unref)         = dlsym(libdecorHandle, "libdecor_frame_unref");
-		reinterpret_cast<void*&>(funcs.libdecor_frame_set_user_data) = dlsym(libdecorHandle, "libdecor_frame_set_user_data");
-		reinterpret_cast<void*&>(funcs.libdecor_decorate)            = dlsym(libdecorHandle, "libdecor_decorate");
-		reinterpret_cast<void*&>(funcs.libdecor_frame_set_title)     = dlsym(libdecorHandle, "libdecor_frame_set_title");
-		reinterpret_cast<void*&>(funcs.libdecor_frame_set_minimized) = dlsym(libdecorHandle, "libdecor_frame_set_minimized");
-		reinterpret_cast<void*&>(funcs.libdecor_frame_set_maximized) = dlsym(libdecorHandle, "libdecor_frame_set_maximized");
-		reinterpret_cast<void*&>(funcs.libdecor_frame_unset_maximized) = dlsym(libdecorHandle, "libdecor_frame_unset_maximized");
-		reinterpret_cast<void*&>(funcs.libdecor_frame_set_fullscreen) = dlsym(libdecorHandle, "libdecor_frame_set_fullscreen");
-		reinterpret_cast<void*&>(funcs.libdecor_frame_unset_fullscreen) = dlsym(libdecorHandle, "libdecor_frame_unset_fullscreen");
-		reinterpret_cast<void*&>(funcs.libdecor_frame_map)           = dlsym(libdecorHandle, "libdecor_frame_map");
-		reinterpret_cast<void*&>(funcs.libdecor_configuration_get_window_state) = dlsym(libdecorHandle, "libdecor_configuration_get_window_state");
-		reinterpret_cast<void*&>(funcs.libdecor_configuration_get_content_size) = dlsym(libdecorHandle, "libdecor_configuration_get_content_size");
-		reinterpret_cast<void*&>(funcs.libdecor_state_new)           = dlsym(libdecorHandle, "libdecor_state_new");
-		reinterpret_cast<void*&>(funcs.libdecor_frame_commit)        = dlsym(libdecorHandle, "libdecor_frame_commit");
-		reinterpret_cast<void*&>(funcs.libdecor_state_free)          = dlsym(libdecorHandle, "libdecor_state_free");
-		reinterpret_cast<void*&>(funcs.libdecor_dispatch)            = dlsym(libdecorHandle, "libdecor_dispatch");
-		if(!funcs.libdecor_new || !funcs.libdecor_unref || !funcs.libdecor_frame_unref || !funcs.libdecor_decorate ||
-		   !funcs.libdecor_frame_set_title || !funcs.libdecor_frame_set_minimized || !funcs.libdecor_frame_set_maximized ||
-		   !funcs.libdecor_frame_unset_maximized || !funcs.libdecor_frame_set_fullscreen ||
-		   !funcs.libdecor_frame_unset_fullscreen || !funcs.libdecor_frame_map ||
-		   !funcs.libdecor_configuration_get_window_state || !funcs.libdecor_configuration_get_content_size ||
-		   !funcs.libdecor_state_new || !funcs.libdecor_frame_commit || !funcs.libdecor_state_free || !funcs.libdecor_dispatch)
+		reinterpret_cast<void*&>(wayland::funcs.libdecor_new)                 = dlsym(wayland::libdecorHandle, "libdecor_new");
+		reinterpret_cast<void*&>(wayland::funcs.libdecor_unref)               = dlsym(wayland::libdecorHandle, "libdecor_unref");
+		reinterpret_cast<void*&>(wayland::funcs.libdecor_frame_unref)         = dlsym(wayland::libdecorHandle, "libdecor_frame_unref");
+		reinterpret_cast<void*&>(wayland::funcs.libdecor_frame_set_user_data) = dlsym(wayland::libdecorHandle, "libdecor_frame_set_user_data");
+		reinterpret_cast<void*&>(wayland::funcs.libdecor_decorate)            = dlsym(wayland::libdecorHandle, "libdecor_decorate");
+		reinterpret_cast<void*&>(wayland::funcs.libdecor_frame_set_title)     = dlsym(wayland::libdecorHandle, "libdecor_frame_set_title");
+		reinterpret_cast<void*&>(wayland::funcs.libdecor_frame_set_minimized) = dlsym(wayland::libdecorHandle, "libdecor_frame_set_minimized");
+		reinterpret_cast<void*&>(wayland::funcs.libdecor_frame_set_maximized) = dlsym(wayland::libdecorHandle, "libdecor_frame_set_maximized");
+		reinterpret_cast<void*&>(wayland::funcs.libdecor_frame_unset_maximized) = dlsym(wayland::libdecorHandle, "libdecor_frame_unset_maximized");
+		reinterpret_cast<void*&>(wayland::funcs.libdecor_frame_set_fullscreen) = dlsym(wayland::libdecorHandle, "libdecor_frame_set_fullscreen");
+		reinterpret_cast<void*&>(wayland::funcs.libdecor_frame_unset_fullscreen) = dlsym(wayland::libdecorHandle, "libdecor_frame_unset_fullscreen");
+		reinterpret_cast<void*&>(wayland::funcs.libdecor_frame_map)           = dlsym(wayland::libdecorHandle, "libdecor_frame_map");
+		reinterpret_cast<void*&>(wayland::funcs.libdecor_configuration_get_window_state) = dlsym(wayland::libdecorHandle, "libdecor_configuration_get_window_state");
+		reinterpret_cast<void*&>(wayland::funcs.libdecor_configuration_get_content_size) = dlsym(wayland::libdecorHandle, "libdecor_configuration_get_content_size");
+		reinterpret_cast<void*&>(wayland::funcs.libdecor_state_new)           = dlsym(wayland::libdecorHandle, "libdecor_state_new");
+		reinterpret_cast<void*&>(wayland::funcs.libdecor_frame_commit)        = dlsym(wayland::libdecorHandle, "libdecor_frame_commit");
+		reinterpret_cast<void*&>(wayland::funcs.libdecor_state_free)          = dlsym(wayland::libdecorHandle, "libdecor_state_free");
+		reinterpret_cast<void*&>(wayland::funcs.libdecor_dispatch)            = dlsym(wayland::libdecorHandle, "libdecor_dispatch");
+		if(!wayland::funcs.libdecor_new || !wayland::funcs.libdecor_unref || !wayland::funcs.libdecor_frame_unref || !wayland::funcs.libdecor_decorate ||
+		   !wayland::funcs.libdecor_frame_set_title || !wayland::funcs.libdecor_frame_set_minimized || !wayland::funcs.libdecor_frame_set_maximized ||
+		   !wayland::funcs.libdecor_frame_unset_maximized || !wayland::funcs.libdecor_frame_set_fullscreen ||
+		   !wayland::funcs.libdecor_frame_unset_fullscreen || !wayland::funcs.libdecor_frame_map ||
+		   !wayland::funcs.libdecor_configuration_get_window_state || !wayland::funcs.libdecor_configuration_get_content_size ||
+		   !wayland::funcs.libdecor_state_new || !wayland::funcs.libdecor_frame_commit || !wayland::funcs.libdecor_state_free || !wayland::funcs.libdecor_dispatch)
 		{
 			throw runtime_error("Cannot retrieve all function pointers out of libdecor-0.so.");
 		}
 
 		// workaround for missing libdecor_frame_set_user_data() in versions 0.1.0 to 0.2.2
-		if(funcs.libdecor_frame_set_user_data == nullptr)
-			funcs.libdecor_frame_set_user_data =
+		if(wayland::funcs.libdecor_frame_set_user_data == nullptr)
+			wayland::funcs.libdecor_frame_set_user_data =
 				[](struct libdecor_frame* frame, void* user_data) -> void {
 					auto* priv = reinterpret_cast<libdecor_frame_workaround*>(frame)->priv;
 					reinterpret_cast<libdecor_frame_private_workaround*>(priv)->user_data = user_data;
 				};
 
 		// create libdecor context
-		wayland::libdecorContext = funcs.libdecor_new(wayland::display, &libdecorInterface);
+		wayland::libdecorContext = wayland::funcs.libdecor_new(wayland::display, &libdecorInterface);
 		if(!wayland::libdecorContext)
 			throw runtime_error("libdecor_new() failed.");
 
@@ -1241,10 +1231,10 @@ void VulkanWindow::finalize() noexcept
 #elif defined(USE_PLATFORM_XLIB)
 
 	if(xlib::display) {
-		if(!externalDisplayHandle)
+		if(!xlib::externalDisplayHandle)
 			XCloseDisplay(xlib::display);
 		xlib::display = nullptr;
-		vulkanWindowMap.clear();
+		xlib::vulkanWindowMap.clear();
 	}
 
 #elif defined(USE_PLATFORM_WAYLAND)
@@ -1266,7 +1256,7 @@ void VulkanWindow::finalize() noexcept
 		wayland::cursorTheme = nullptr;
 	}
 	if(wayland::libdecorContext) {
-		funcs.libdecor_unref(wayland::libdecorContext);
+		wayland::funcs.libdecor_unref(wayland::libdecorContext);
 		wayland::libdecorContext = nullptr;
 	}
 	if(wayland::shm) {
@@ -1290,13 +1280,13 @@ void VulkanWindow::finalize() noexcept
 		wayland::xdgWmBase = nullptr;
 	}
 	if(wayland::display) {
-		if(!externalDisplayHandle)
+		if(!wayland::externalDisplayHandle)
 			wl_display_disconnect(wayland::display);
 		wayland::display = nullptr;
 	}
-	if(libdecorHandle) {
-		dlclose(libdecorHandle);
-		libdecorHandle = nullptr;
+	if(wayland::libdecorHandle) {
+		dlclose(wayland::libdecorHandle);
+		wayland::libdecorHandle = nullptr;
 	}
 	wayland::registry = nullptr;
 	wayland::compositor = nullptr;
@@ -1399,7 +1389,7 @@ void VulkanWindow::destroy() noexcept
 #elif defined(USE_PLATFORM_XLIB)
 
 	// release resources
-	vulkanWindowMap.erase(_xlib.window);
+	xlib::vulkanWindowMap.erase(_xlib.window);
 	XDestroyWindow(xlib::display, _xlib.window);
 	_xlib.window = 0;
 
@@ -1407,10 +1397,10 @@ void VulkanWindow::destroy() noexcept
 
 	// invalidate pointers to this object
 	// (maybe, leave events are sent on surface destroy and these are not necessary (?))
-	if(windowUnderPointer == this)
-		windowUnderPointer = nullptr;
-	if(windowWithKbFocus == this)
-		windowWithKbFocus = nullptr;
+	if(wayland::windowUnderPointer == this)
+		wayland::windowUnderPointer = nullptr;
+	if(wayland::windowWithKbFocus == this)
+		wayland::windowWithKbFocus = nullptr;
 
 	// release resources
 	if(_wayland.scheduledFrameCallback) {
@@ -1418,7 +1408,7 @@ void VulkanWindow::destroy() noexcept
 		_wayland.scheduledFrameCallback = nullptr;
 	}
 	if(_wayland.libdecorFrame) {
-		funcs.libdecor_frame_unref(_wayland.libdecorFrame);
+		wayland::funcs.libdecor_frame_unref(_wayland.libdecorFrame);
 		_wayland.libdecorFrame = nullptr;
 	}
 	if(_wayland.decoration) {
@@ -1568,7 +1558,7 @@ VulkanWindow::VulkanWindow(VulkanWindow&& other) noexcept
 
 	// update pointers to this object
 	if(_xlib.window != 0)
-		vulkanWindowMap[_xlib.window] = this;
+		xlib::vulkanWindowMap[_xlib.window] = this;
 
 #elif defined(USE_PLATFORM_WAYLAND)
 
@@ -1585,7 +1575,7 @@ VulkanWindow::VulkanWindow(VulkanWindow&& other) noexcept
 	if(_wayland.xdgTopLevel)
 		xdg_toplevel_set_user_data(_wayland.xdgTopLevel, this);
 	if(_wayland.libdecorFrame)
-		funcs.libdecor_frame_set_user_data(_wayland.libdecorFrame, this);
+		wayland::funcs.libdecor_frame_set_user_data(_wayland.libdecorFrame, this);
 	if(_wayland.scheduledFrameCallback)
 		wl_callback_set_user_data(_wayland.scheduledFrameCallback, this);
 	other._wayland.wlSurface = nullptr;
@@ -1596,10 +1586,10 @@ VulkanWindow::VulkanWindow(VulkanWindow&& other) noexcept
 	other._wayland.scheduledFrameCallback = nullptr;
 
 	// update pointers to this object
-	if(windowUnderPointer == &other)
-		windowUnderPointer = static_cast<VulkanWindowPrivate*>(this);
-	if(windowWithKbFocus == &other)
-		windowWithKbFocus = static_cast<VulkanWindowPrivate*>(this);
+	if(wayland::windowUnderPointer == &other)
+		wayland::windowUnderPointer = static_cast<VulkanWindowPrivate*>(this);
+	if(wayland::windowWithKbFocus == &other)
+		wayland::windowWithKbFocus = static_cast<VulkanWindowPrivate*>(this);
 
 #elif defined(USE_PLATFORM_SDL3)
 
@@ -1703,7 +1693,7 @@ VulkanWindow& VulkanWindow::operator=(VulkanWindow&& other) noexcept
 
 	// update pointers to this object
 	if(_xlib.window != 0)
-		vulkanWindowMap[_xlib.window] = this;
+		xlib::vulkanWindowMap[_xlib.window] = this;
 
 #elif defined(USE_PLATFORM_WAYLAND)
 
@@ -1720,7 +1710,7 @@ VulkanWindow& VulkanWindow::operator=(VulkanWindow&& other) noexcept
 	if(_wayland.xdgTopLevel)
 		xdg_toplevel_set_user_data(_wayland.xdgTopLevel, this);
 	if(_wayland.libdecorFrame)
-		funcs.libdecor_frame_set_user_data(_wayland.libdecorFrame, this);
+		wayland::funcs.libdecor_frame_set_user_data(_wayland.libdecorFrame, this);
 	if(_wayland.scheduledFrameCallback)
 		wl_callback_set_user_data(_wayland.scheduledFrameCallback, this);
 	other._wayland.wlSurface = nullptr;
@@ -1731,10 +1721,10 @@ VulkanWindow& VulkanWindow::operator=(VulkanWindow&& other) noexcept
 	other._wayland.scheduledFrameCallback = nullptr;
 
 	// update pointers to this object
-	if(windowUnderPointer == &other)
-		windowUnderPointer = static_cast<VulkanWindowPrivate*>(this);
-	if(windowWithKbFocus == &other)
-		windowWithKbFocus = static_cast<VulkanWindowPrivate*>(this);
+	if(wayland::windowUnderPointer == &other)
+		wayland::windowUnderPointer = static_cast<VulkanWindowPrivate*>(this);
+	if(wayland::windowWithKbFocus == &other)
+		wayland::windowWithKbFocus = static_cast<VulkanWindowPrivate*>(this);
 
 #elif defined(USE_PLATFORM_SDL3)
 
@@ -1931,7 +1921,7 @@ VkSurfaceKHR VulkanWindow::createInternal(VkInstance instance, VkExtent2D surfac
 			CWEventMask,  // valuemask
 			&attr  // attributes
 		);
-	if(vulkanWindowMap.emplace(_xlib.window, this).second == false)
+	if(xlib::vulkanWindowMap.emplace(_xlib.window, this).second == false)
 		throw runtime_error("VulkanWindow: The window already exists.");
 	XSetWMProtocols(xlib::display, _xlib.window, &xlib::wmDeleteMessage, 1);
 	XSetStandardProperties(xlib::display, _xlib.window, _title.c_str(), _title.c_str(), None, NULL, 0, NULL);
@@ -1986,7 +1976,7 @@ VkSurfaceKHR VulkanWindow::createInternal(VkInstance instance, VkExtent2D surfac
 		throw runtime_error("VulkanWindow: wl_compositor_create_surface() failed.");
 
 	// set tag on surface
-	wl_proxy_set_tag(reinterpret_cast<wl_proxy*>(_wayland.wlSurface), &vulkanWindowTag);
+	wl_proxy_set_tag(reinterpret_cast<wl_proxy*>(_wayland.wlSurface), &wayland::vulkanWindowTag);
 
 	// associate surface with VulkanWindow
 	wl_surface_set_user_data(_wayland.wlSurface, this);
@@ -2990,16 +2980,16 @@ void VulkanWindow::mainLoop()
 
 	// run Xlib event loop
 	XEvent e;
-	running = true;
-	while(running) {
+	xlib::running = true;
+	while(xlib::running) {
 
 		// get event
 		XNextEvent(xlib::display, &e);
 
 		// get VulkanWindow
 		// (we use std::map because per-window data using XGetWindowProperty() would require X-server roundtrip)
-		auto it = vulkanWindowMap.find(e.xany.window);
-		if(it == vulkanWindowMap.end())
+		auto it = xlib::vulkanWindowMap.find(e.xany.window);
+		if(it == xlib::vulkanWindowMap.end())
 			continue;
 		VulkanWindow* w = it->second;
 
@@ -3195,7 +3185,7 @@ void VulkanWindow::mainLoop()
 
 void VulkanWindow::exitMainLoop()
 {
-	running = false;
+	xlib::running = false;
 }
 
 
@@ -3247,12 +3237,12 @@ void VulkanWindow::show(void (*xdgConfigFunc)(VulkanWindow&), void (*libdecorCon
 	{
 
 		// create libdecor decorations
-		_wayland.libdecorFrame = funcs.libdecor_decorate(wayland::libdecorContext, _wayland.wlSurface, &libdecorFrameInterface, this);
+		_wayland.libdecorFrame = wayland::funcs.libdecor_decorate(wayland::libdecorContext, _wayland.wlSurface, &libdecorFrameInterface, this);
 		if(_wayland.libdecorFrame == nullptr)
 			throw runtime_error("VulkanWindow::show(): libdecor_decorate() failed.");
-		funcs.libdecor_frame_set_title(_wayland.libdecorFrame, _title.c_str());
+		wayland::funcs.libdecor_frame_set_title(_wayland.libdecorFrame, _title.c_str());
 		libdecorConfigFunc(*this);
-		funcs.libdecor_frame_map(_wayland.libdecorFrame);
+		wayland::funcs.libdecor_frame_map(_wayland.libdecorFrame);
 
 	}
 	else
@@ -3358,7 +3348,7 @@ void VulkanWindowPrivate::libdecorFrameConfigure(libdecor_frame* frame, libdecor
 
 	// update window state
 	libdecor_window_state s;
-	if(funcs.libdecor_configuration_get_window_state(config, &s)) {
+	if(wayland::funcs.libdecor_configuration_get_window_state(config, &s)) {
 		if(s & LIBDECOR_WINDOW_STATE_FULLSCREEN)
 			w->_wayland.windowState = WindowState::FullScreen;
 		else if(s & LIBDECOR_WINDOW_STATE_MAXIMIZED)
@@ -3372,7 +3362,7 @@ void VulkanWindowPrivate::libdecorFrameConfigure(libdecor_frame* frame, libdecor
 	// if width or height of the window changed,
 	// schedule swapchain resize and force new frame rendering
 	int width, height;
-	if(funcs.libdecor_configuration_get_content_size(config, frame, &width, &height))
+	if(wayland::funcs.libdecor_configuration_get_content_size(config, frame, &width, &height))
 	{
 		if(uint32_t(width) != w->_surfaceExtent.width && width != 0) {
 			w->_surfaceExtent.width = width;
@@ -3389,9 +3379,9 @@ void VulkanWindowPrivate::libdecorFrameConfigure(libdecor_frame* frame, libdecor
 	cout << "libdecor configure: " << w->_surfaceExtent.width <<"x" << w->_surfaceExtent.height << endl;
 
 	// set new window state
-	libdecor_state* state = funcs.libdecor_state_new(w->_surfaceExtent.width, w->_surfaceExtent.height);
-	funcs.libdecor_frame_commit(frame, state, config);
-	funcs.libdecor_state_free(state);
+	libdecor_state* state = wayland::funcs.libdecor_state_new(w->_surfaceExtent.width, w->_surfaceExtent.height);
+	wayland::funcs.libdecor_frame_commit(frame, state, config);
+	wayland::funcs.libdecor_state_free(state);
 
 	// we need to explicitly generate the first frame
 	// otherwise the window is not shown
@@ -3466,7 +3456,7 @@ void VulkanWindow::hide()
 		_wayland.scheduledFrameCallback = nullptr;
 	}
 	if(_wayland.libdecorFrame) {
-		funcs.libdecor_frame_unref(_wayland.libdecorFrame);
+		wayland::funcs.libdecor_frame_unref(_wayland.libdecorFrame);
 		_wayland.libdecorFrame = nullptr;
 		wl_surface_attach(_wayland.wlSurface, NULL, 0, 0);
 		wl_surface_commit(_wayland.wlSurface);
@@ -3497,12 +3487,12 @@ void VulkanWindow::mainLoop()
 		throw runtime_error("wl_display_flush() failed.");
 
 	// main loop
-	running = true;
-	while(running) {
+	wayland::running = true;
+	while(wayland::running) {
 
 		// dispatch libdecor events
 		if(wayland::libdecorContext)
-			funcs.libdecor_dispatch(wayland::libdecorContext, -1);
+			wayland::funcs.libdecor_dispatch(wayland::libdecorContext, -1);
 
 		// dispatch Wayland events
 		if(wl_display_dispatch(wayland::display) == -1)  // it blocks if there are no events
@@ -3519,7 +3509,7 @@ void VulkanWindow::mainLoop()
 
 void VulkanWindow::exitMainLoop()
 {
-	running = false;
+	wayland::running = false;
 }
 
 
@@ -3582,56 +3572,56 @@ void VulkanWindowPrivate::pointerListenerEnter(void* data, wl_pointer* pointer, 
 {
 	// ignore foreign surfaces
 	// (this is necessary on some compositors, to name some: gnome-shell on Ubuntu 24.04 + Fedora 41)
-	if(wl_proxy_get_tag(reinterpret_cast<wl_proxy*>(surface)) != &vulkanWindowTag)
+	if(wl_proxy_get_tag(reinterpret_cast<wl_proxy*>(surface)) != &wayland::vulkanWindowTag)
 		return;
 
 	// set cursor
 	wl_pointer_set_cursor(pointer, serial, wayland::cursorSurface, wayland::cursorHotspotX, wayland::cursorHotspotY);
 
 	// get window pointer
-	windowUnderPointer = static_cast<VulkanWindowPrivate*>(wl_surface_get_user_data(surface));
-	assert(windowUnderPointer && "wl_surface userData does not contain pointer to VulkanWindow.");
+	wayland::windowUnderPointer = static_cast<VulkanWindowPrivate*>(wl_surface_get_user_data(surface));
+	assert(wayland::windowUnderPointer && "wl_surface userData does not contain pointer to VulkanWindow.");
 
 	// update mouse state
 	float x = float(wl_fixed_to_double(surface_x));
 	float y = float(wl_fixed_to_double(surface_y));
-	if(windowUnderPointer->_mouseState.posX != x ||
-	   windowUnderPointer->_mouseState.posY != y)
+	if(wayland::windowUnderPointer->_mouseState.posX != x ||
+	   wayland::windowUnderPointer->_mouseState.posY != y)
 	{
-		windowUnderPointer->_mouseState.relX = 0;
-		windowUnderPointer->_mouseState.relY = 0;
-		windowUnderPointer->_mouseState.posX = x;
-		windowUnderPointer->_mouseState.posY = y;
-		if(windowUnderPointer->_mouseMoveCallback)
-			windowUnderPointer->_mouseMoveCallback(*windowUnderPointer, windowUnderPointer->_mouseState);
+		wayland::windowUnderPointer->_mouseState.relX = 0;
+		wayland::windowUnderPointer->_mouseState.relY = 0;
+		wayland::windowUnderPointer->_mouseState.posX = x;
+		wayland::windowUnderPointer->_mouseState.posY = y;
+		if(wayland::windowUnderPointer->_mouseMoveCallback)
+			wayland::windowUnderPointer->_mouseMoveCallback(*wayland::windowUnderPointer, wayland::windowUnderPointer->_mouseState);
 	}
 }
 
 
 void VulkanWindowPrivate::pointerListenerLeave(void* data, wl_pointer* pointer, uint32_t serial, wl_surface* surface)
 {
-	windowUnderPointer = nullptr;
+	wayland::windowUnderPointer = nullptr;
 }
 
 
 void VulkanWindowPrivate::pointerListenerMotion(void* data, wl_pointer* pointer, uint32_t time, wl_fixed_t surface_x, wl_fixed_t surface_y)
 {
 	// handle unknown window
-	if(windowUnderPointer == nullptr)
+	if(wayland::windowUnderPointer == nullptr)
 		return;
 
 	float x = float(wl_fixed_to_double(surface_x));
 	float y = float(wl_fixed_to_double(surface_y));
-	if(windowUnderPointer->_mouseState.posX != x ||
-	   windowUnderPointer->_mouseState.posY != y)
+	if(wayland::windowUnderPointer->_mouseState.posX != x ||
+	   wayland::windowUnderPointer->_mouseState.posY != y)
 	{
-		windowUnderPointer->_mouseState.relX = x - windowUnderPointer->_mouseState.posX;
-		windowUnderPointer->_mouseState.relY = y - windowUnderPointer->_mouseState.posY;
-		windowUnderPointer->_mouseState.posX = x;
-		windowUnderPointer->_mouseState.posY = y;
-		if(windowUnderPointer->_mouseMoveCallback) {
-			windowUnderPointer->_mouseState.modifiers = wayland::modifiers;
-			windowUnderPointer->_mouseMoveCallback(*windowUnderPointer, windowUnderPointer->_mouseState);
+		wayland::windowUnderPointer->_mouseState.relX = x - wayland::windowUnderPointer->_mouseState.posX;
+		wayland::windowUnderPointer->_mouseState.relY = y - wayland::windowUnderPointer->_mouseState.posY;
+		wayland::windowUnderPointer->_mouseState.posX = x;
+		wayland::windowUnderPointer->_mouseState.posY = y;
+		if(wayland::windowUnderPointer->_mouseMoveCallback) {
+			wayland::windowUnderPointer->_mouseState.modifiers = wayland::modifiers;
+			wayland::windowUnderPointer->_mouseMoveCallback(*wayland::windowUnderPointer, wayland::windowUnderPointer->_mouseState);
 		}
 	}
 }
@@ -3640,7 +3630,7 @@ void VulkanWindowPrivate::pointerListenerMotion(void* data, wl_pointer* pointer,
 void VulkanWindowPrivate::pointerListenerButton(void* data, wl_pointer* pointer, uint32_t serial, uint32_t time, uint32_t button, uint32_t state)
 {
 	// handle unknown window
-	if(windowUnderPointer == nullptr)
+	if(wayland::windowUnderPointer == nullptr)
 		return;
 
 	MouseButton::EnumType index;
@@ -3653,13 +3643,13 @@ void VulkanWindowPrivate::pointerListenerButton(void* data, wl_pointer* pointer,
 	case 0x114: index = MouseButton::X2; break;
 	default: index = MouseButton::Unknown;
 	}
-	windowUnderPointer->_mouseState.buttons.set(index, state == WL_POINTER_BUTTON_STATE_PRESSED);
-	if(windowUnderPointer->_mouseButtonCallback) {
-		windowUnderPointer->_mouseState.modifiers = wayland::modifiers;
+	wayland::windowUnderPointer->_mouseState.buttons.set(index, state == WL_POINTER_BUTTON_STATE_PRESSED);
+	if(wayland::windowUnderPointer->_mouseButtonCallback) {
+		wayland::windowUnderPointer->_mouseState.modifiers = wayland::modifiers;
 		ButtonState buttonState =
 			(state == WL_POINTER_BUTTON_STATE_PRESSED) ? ButtonState::Pressed : ButtonState::Released;
-		windowUnderPointer->_mouseButtonCallback(
-			*windowUnderPointer, index, buttonState, windowUnderPointer->_mouseState);
+		wayland::windowUnderPointer->_mouseButtonCallback(
+			*wayland::windowUnderPointer, index, buttonState, wayland::windowUnderPointer->_mouseState);
 	}
 }
 
@@ -3667,7 +3657,7 @@ void VulkanWindowPrivate::pointerListenerButton(void* data, wl_pointer* pointer,
 void VulkanWindowPrivate::pointerListenerAxis(void* data, wl_pointer* pointer, uint32_t time, uint32_t axis, wl_fixed_t value)
 {
 	// handle unknown window
-	if(windowUnderPointer == nullptr)
+	if(wayland::windowUnderPointer == nullptr)
 		return;
 
 	float v = float(wl_fixed_to_double(value)) * 8 / 120.f;
@@ -3680,10 +3670,10 @@ void VulkanWindowPrivate::pointerListenerAxis(void* data, wl_pointer* pointer, u
 		wheelX = v;
 		wheelY = 0;
 	}
-	if(windowUnderPointer->_mouseWheelCallback) {
-		windowUnderPointer->_mouseState.modifiers = wayland::modifiers;
-		windowUnderPointer->_mouseWheelCallback(*windowUnderPointer, wheelX, wheelY,
-		                                        windowUnderPointer->_mouseState);
+	if(wayland::windowUnderPointer->_mouseWheelCallback) {
+		wayland::windowUnderPointer->_mouseState.modifiers = wayland::modifiers;
+		wayland::windowUnderPointer->_mouseWheelCallback(
+			*wayland::windowUnderPointer, wheelX, wheelY, wayland::windowUnderPointer->_mouseState);
 	}
 }
 
@@ -3730,8 +3720,8 @@ void VulkanWindowPrivate::keyboardListenerKeymap(void* data, wl_keyboard* keyboa
 
 void VulkanWindowPrivate::keyboardListenerEnter(void* data, wl_keyboard* keyboard, uint32_t serial, wl_surface* surface, wl_array* keys)
 {
-	windowWithKbFocus = static_cast<VulkanWindowPrivate*>(wl_surface_get_user_data(surface));
-	assert(windowWithKbFocus && "wl_surface userData does not contain pointer to VulkanWindow.");
+	wayland::windowWithKbFocus = static_cast<VulkanWindowPrivate*>(wl_surface_get_user_data(surface));
+	assert(wayland::windowWithKbFocus && "wl_surface userData does not contain pointer to VulkanWindow.");
 
 #if 0 // this seems not needed for our simple key down and key up callbacks
 	// iterate keys array;
@@ -3751,7 +3741,7 @@ void VulkanWindowPrivate::keyboardListenerEnter(void* data, wl_keyboard* keyboar
 
 void VulkanWindowPrivate::keyboardListenerLeave(void* data, wl_keyboard* keyboard, uint32_t serial, wl_surface* surface)
 {
-	windowWithKbFocus = nullptr;
+	wayland::windowWithKbFocus = nullptr;
 }
 
 
@@ -3761,9 +3751,9 @@ void VulkanWindowPrivate::keyboardListenerKey(void* data, wl_keyboard* keyboard,
 	uint32_t codePoint = xkb_state_key_get_utf32(wayland::xkbState, scanCode + 8);
 
 	// callback
-	if(windowWithKbFocus->_keyCallback) {
-		windowWithKbFocus->_keyCallback(
-			*windowWithKbFocus,
+	if(wayland::windowWithKbFocus->_keyCallback) {
+		wayland::windowWithKbFocus->_keyCallback(
+			*wayland::windowWithKbFocus,
 			state==WL_KEYBOARD_KEY_STATE_PRESSED ? KeyState::Pressed : KeyState::Released,
 			ScanCode(scanCode),
 			KeyCode(codePoint)
@@ -4944,7 +4934,7 @@ void VulkanWindow::updateTitle()
 	// if libdecor is used, use libdecor_frame_set_title()
 	// otherwise set it using xdg_toplevel_set_title()
 	if(_wayland.libdecorFrame)
-		funcs.libdecor_frame_set_title(_wayland.libdecorFrame, _title.c_str());
+		wayland::funcs.libdecor_frame_set_title(_wayland.libdecorFrame, _title.c_str());
 	if(_wayland.xdgTopLevel)
 		xdg_toplevel_set_title(_wayland.xdgTopLevel, _title.c_str());
 }
@@ -5071,14 +5061,14 @@ void VulkanWindow::setWindowState(WindowState windowState)
 			// show the window with appropriate settings
 			show(
 				[](VulkanWindow& w) { xdg_toplevel_set_minimized(w._wayland.xdgTopLevel); },
-				[](VulkanWindow& w) { funcs.libdecor_frame_set_minimized(w._wayland.libdecorFrame); }
+				[](VulkanWindow& w) { wayland::funcs.libdecor_frame_set_minimized(w._wayland.libdecorFrame); }
 			);
 
 		else
 
 			// set window state
 			if(_wayland.libdecorFrame)
-				funcs.libdecor_frame_set_minimized(_wayland.libdecorFrame);
+				wayland::funcs.libdecor_frame_set_minimized(_wayland.libdecorFrame);
 			else
 				xdg_toplevel_set_minimized(_wayland.xdgTopLevel);
 
@@ -5089,15 +5079,15 @@ void VulkanWindow::setWindowState(WindowState windowState)
 			// show the window with appropriate settings
 			show(
 				[](VulkanWindow& w) { xdg_toplevel_unset_maximized(w._wayland.xdgTopLevel); xdg_toplevel_unset_fullscreen(w._wayland.xdgTopLevel); },
-				[](VulkanWindow& w) { funcs.libdecor_frame_unset_maximized(w._wayland.libdecorFrame); funcs.libdecor_frame_unset_fullscreen(w._wayland.libdecorFrame); }
+				[](VulkanWindow& w) { wayland::funcs.libdecor_frame_unset_maximized(w._wayland.libdecorFrame); wayland::funcs.libdecor_frame_unset_fullscreen(w._wayland.libdecorFrame); }
 			);
 
 		else {
 
 			// set window state
 			if(_wayland.libdecorFrame) {
-				funcs.libdecor_frame_unset_maximized(_wayland.libdecorFrame);
-				funcs.libdecor_frame_unset_fullscreen(_wayland.libdecorFrame);
+				wayland::funcs.libdecor_frame_unset_maximized(_wayland.libdecorFrame);
+				wayland::funcs.libdecor_frame_unset_fullscreen(_wayland.libdecorFrame);
 			}
 			else {
 				xdg_toplevel_unset_maximized(_wayland.xdgTopLevel);
@@ -5119,15 +5109,15 @@ void VulkanWindow::setWindowState(WindowState windowState)
 			// show the window with appropriate settings
 			show(
 				[](VulkanWindow& w) { xdg_toplevel_set_maximized(w._wayland.xdgTopLevel); xdg_toplevel_unset_fullscreen(w._wayland.xdgTopLevel); },
-				[](VulkanWindow& w) { funcs.libdecor_frame_set_maximized(w._wayland.libdecorFrame); funcs.libdecor_frame_unset_fullscreen(w._wayland.libdecorFrame); }
+				[](VulkanWindow& w) { wayland::funcs.libdecor_frame_set_maximized(w._wayland.libdecorFrame); wayland::funcs.libdecor_frame_unset_fullscreen(w._wayland.libdecorFrame); }
 			);
 
 		else {
 
 			// send callback
 			if(_wayland.libdecorFrame) {
-				funcs.libdecor_frame_set_maximized(_wayland.libdecorFrame);
-				funcs.libdecor_frame_unset_fullscreen(_wayland.libdecorFrame);
+				wayland::funcs.libdecor_frame_set_maximized(_wayland.libdecorFrame);
+				wayland::funcs.libdecor_frame_unset_fullscreen(_wayland.libdecorFrame);
 			}
 			else {
 				xdg_toplevel_set_maximized(_wayland.xdgTopLevel);
@@ -5149,14 +5139,14 @@ void VulkanWindow::setWindowState(WindowState windowState)
 			// show the window with appropriate settings
 			show(
 				[](VulkanWindow& w) { xdg_toplevel_set_fullscreen(w._wayland.xdgTopLevel, nullptr); },
-				[](VulkanWindow& w) { funcs.libdecor_frame_set_fullscreen(w._wayland.libdecorFrame, nullptr); }
+				[](VulkanWindow& w) { wayland::funcs.libdecor_frame_set_fullscreen(w._wayland.libdecorFrame, nullptr); }
 			);
 
 		else {
 
 			// send callback
 			if(_wayland.libdecorFrame)
-				funcs.libdecor_frame_set_fullscreen(_wayland.libdecorFrame, nullptr);
+				wayland::funcs.libdecor_frame_set_fullscreen(_wayland.libdecorFrame, nullptr);
 			else
 				xdg_toplevel_set_fullscreen(_wayland.xdgTopLevel, nullptr);
 
