@@ -27,27 +27,39 @@ public:
 	vk::SwapchainKHR swapchain;
 	vector<vk::ImageView> swapchainImageViews;
 	vector<vk::Framebuffer> framebuffers;
+	vector<vk::Semaphore> renderingFinishedSemaphores;
 	vk::Pipeline pipeline;
 
 	Window(vk::Instance instance, vk::Extent2D surfaceExtent, const char* title = "Vulkan window")
 		: VulkanWindow()
-		, surface(VulkanWindow::create(instance, surfaceExtent, title)) {}
-	Window(Window&& other) noexcept : VulkanWindow(move(other))  {
+		, surface(VulkanWindow::create(instance, surfaceExtent, title))
+	{
+	}
+	Window(Window&& other) noexcept
+		: VulkanWindow(move(other))
+	{
 		surface = other.surface;
-		swapchain = other.swapchain; other.swapchain = nullptr;
+		swapchain = other.swapchain;
+		other.swapchain = nullptr;
 		swapchainImageViews = move(other.swapchainImageViews);
 		framebuffers = move(other.framebuffers);
-		pipeline = other.pipeline; other.pipeline = nullptr;
+		renderingFinishedSemaphores = move(other.renderingFinishedSemaphores);
+		pipeline = other.pipeline;
+		other.pipeline = nullptr;
 	}
 	~Window()  { destroyMembers(); }
-	Window& operator=(Window&& other) noexcept {
+	Window& operator=(Window&& rhs) noexcept
+	{
 		destroyMembers();
-		VulkanWindow::operator=(move(other));
-		surface = other.surface;
-		swapchain = other.swapchain; other.swapchain = nullptr;
-		swapchainImageViews = move(other.swapchainImageViews);
-		framebuffers = move(other.framebuffers);
-		pipeline = other.pipeline; other.pipeline = nullptr;
+		VulkanWindow::operator=(move(rhs));
+		surface = rhs.surface;
+		swapchain = rhs.swapchain;
+		rhs.swapchain = nullptr;
+		swapchainImageViews = move(rhs.swapchainImageViews);
+		framebuffers = move(rhs.framebuffers);
+		renderingFinishedSemaphores = move(rhs.renderingFinishedSemaphores);
+		pipeline = rhs.pipeline;
+		rhs.pipeline = nullptr;
 		return *this;
 	}
 protected:
@@ -72,9 +84,11 @@ void Window::destroyMembers() noexcept
 	// destroy resources
 	device.destroy(pipeline);
 	pipeline = nullptr;
+	for(auto s : renderingFinishedSemaphores)  device.destroy(s);
 	for(auto f : framebuffers)  device.destroy(f);
-	framebuffers.clear();
 	for(auto v : swapchainImageViews)  device.destroy(v);
+	renderingFinishedSemaphores.clear();
+	framebuffers.clear();
 	swapchainImageViews.clear();
 	device.destroy(swapchain);
 	swapchain = nullptr;
@@ -114,7 +128,6 @@ public:
 	vk::CommandPool commandPool;
 	vk::CommandBuffer commandBuffer;
 	vk::Semaphore imageAvailableSemaphore;
-	vk::Semaphore renderFinishedSemaphore;
 	vk::Fence renderFinishedFence;
 	vk::ShaderModule vsModule;
 	vk::ShaderModule fsModule;
@@ -178,7 +191,6 @@ App::~App()
 		device.destroy(fsModule);
 		device.destroy(vsModule);
 		device.destroy(renderFinishedFence);
-		device.destroy(renderFinishedSemaphore);
 		device.destroy(imageAvailableSemaphore);
 		device.destroy(commandPool);
 		device.destroy(renderPass);
@@ -479,14 +491,8 @@ void App::init()
 			)
 		)[0];
 
-	// rendering semaphores and fences
+	// rendering semaphore and fence
 	imageAvailableSemaphore =
-		device.createSemaphore(
-			vk::SemaphoreCreateInfo(
-				vk::SemaphoreCreateFlags()  // flags
-			)
-		);
-	renderFinishedSemaphore =
 		device.createSemaphore(
 			vk::SemaphoreCreateInfo(
 				vk::SemaphoreCreateFlags()  // flags
@@ -632,6 +638,21 @@ void App::resize(VulkanWindow& w, const vk::SurfaceCapabilitiesKHR& surfaceCapab
 				)
 			)
 		);
+
+	// rendering finished semaphores
+	if(window.renderingFinishedSemaphores.size() != swapchainImages.size())
+	{
+		for(auto s : window.renderingFinishedSemaphores)
+			device.destroy(s);
+		window.renderingFinishedSemaphores.clear();
+		window.renderingFinishedSemaphores.reserve(swapchainImages.size());
+		vk::SemaphoreCreateInfo semaphoreCreateInfo{
+			vk::SemaphoreCreateFlags()  // flags
+		};
+		for(size_t i=0,c=swapchainImages.size(); i<c; i++)
+			window.renderingFinishedSemaphores.emplace_back(
+				device.createSemaphore(semaphoreCreateInfo));
+	}
 
 	// pipeline
 	window.pipeline =
@@ -847,6 +868,7 @@ void App::frame(VulkanWindow& w)
 	commandBuffer.end();
 
 	// submit frame
+	vk::Semaphore renderingFinishedSemaphore = window.renderingFinishedSemaphores[imageIndex];
 	graphicsQueue.submit(
 		vk::ArrayProxy<const vk::SubmitInfo>(
 			1,
@@ -855,7 +877,7 @@ void App::frame(VulkanWindow& w)
 				&(const vk::PipelineStageFlags&)vk::PipelineStageFlags(  // pWaitDstStageMask
 					vk::PipelineStageFlagBits::eColorAttachmentOutput),
 				1, &commandBuffer,  // commandBufferCount + pCommandBuffers
-				1, &renderFinishedSemaphore  // signalSemaphoreCount + pSignalSemaphores
+				1, &renderingFinishedSemaphore  // signalSemaphoreCount + pSignalSemaphores
 			)
 		),
 		renderFinishedFence  // fence
@@ -865,7 +887,7 @@ void App::frame(VulkanWindow& w)
 	r =
 		presentationQueue.presentKHR(
 			&(const vk::PresentInfoKHR&)vk::PresentInfoKHR(
-				1, &renderFinishedSemaphore,  // waitSemaphoreCount + pWaitSemaphores
+				1, &renderingFinishedSemaphore,  // waitSemaphoreCount + pWaitSemaphores
 				1, &window.swapchain, &imageIndex,  // swapchainCount + pSwapchains + pImageIndices
 				nullptr  // pResults
 			)

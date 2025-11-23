@@ -59,8 +59,8 @@ App::App(int argc, char** argv)
 
 App::~App()
 {
-	if(device) {
-
+	if(device)
+	{
 		// wait for device idle state
 		// (to prevent errors during destruction of Vulkan resources)
 		try {

@@ -100,8 +100,8 @@ App::App(int argc, char** argv)
 
 App::~App()
 {
-	if(device) {
-
+	if(device)
+	{
 		// wait for device idle state
 		// (to prevent errors during destruction of Vulkan resources)
 		try {
@@ -125,7 +125,6 @@ App::~App()
 		device.destroy(swapchain);
 		device.destroy(renderPass);
 		device.destroy();
-
 	}
 
 	// destroy window
