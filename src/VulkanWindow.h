@@ -323,18 +323,6 @@ inline const std::function<VulkanWindow::MouseWheelCallback>& VulkanWindow::mous
 inline const std::function<VulkanWindow::KeyCallback>& VulkanWindow::keyCallback() const  { return _keyCallback; }
 inline VkSurfaceKHR VulkanWindow::surface() const  { return _surface; }
 inline VkExtent2D VulkanWindow::surfaceExtent() const  { return _surfaceExtent; }
-#if defined(USE_PLATFORM_WIN32)
-inline bool VulkanWindow::isVisible() const  { return _win32.hwnd && _win32.visible; }
-#elif defined(USE_PLATFORM_XLIB)
-inline bool VulkanWindow::isVisible() const  { return _xlib.window && _xlib.visible; }
-#elif defined(USE_PLATFORM_WAYLAND)
-inline bool VulkanWindow::isVisible() const  { return _wayland.wlSurface && (_wayland.xdgSurface || _wayland.libdecorFrame); }
-inline void VulkanWindow::show()  { show([](VulkanWindow&){}, [](VulkanWindow&){}); }
-#elif defined(USE_PLATFORM_SDL3) || defined(USE_PLATFORM_SDL2)
-inline bool VulkanWindow::isVisible() const  { return _sdl.window && _sdl.visible; }
-#elif defined(USE_PLATFORM_GLFW)
-inline bool VulkanWindow::isVisible() const  { return _glfw.window && _glfw.visible; }
-#endif
 inline const std::string& VulkanWindow::title() const  { return _title; }
 inline void VulkanWindow::setTitle(std::string&& s)  { if(s==_title) return; _title=std::move(s); updateTitle(); }
 inline void VulkanWindow::setTitle(const std::string& s)  { if(s==_title) return; _title=s; updateTitle(); }
@@ -343,14 +331,6 @@ inline void VulkanWindow::showMaximized()  { setWindowState(WindowState::Maximiz
 inline void VulkanWindow::showNormal()  { setWindowState(WindowState::Normal); }
 inline void VulkanWindow::showMinimized()  { setWindowState(WindowState::Minimized); }
 inline void VulkanWindow::scheduleResize()  { _resizePending = true; scheduleFrame(); }
-#if 0
-#if defined(USE_PLATFORM_WIN32) || defined(USE_PLATFORM_XLIB) || defined(USE_PLATFORM_WAYLAND)
-inline const std::vector<const char*>& VulkanWindow::requiredExtensions()  { return _requiredInstanceExtensions; }
-inline std::vector<const char*>& VulkanWindow::appendRequiredExtensions(std::vector<const char*>& v)  { v.insert(v.end(), _requiredInstanceExtensions.begin(), _requiredInstanceExtensions.end()); return v; }
-inline uint32_t VulkanWindow::requiredExtensionCount()  { return uint32_t(_requiredInstanceExtensions.size()); }
-inline const char* const* VulkanWindow::requiredExtensionNames()  { return _requiredInstanceExtensions.data(); }
-#endif
-#endif
 inline constexpr VulkanWindow::KeyCode VulkanWindow::fromAscii(char ch)  { return VulkanWindow::KeyCode(ch); }
 
 
