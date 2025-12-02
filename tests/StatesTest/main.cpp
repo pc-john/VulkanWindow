@@ -63,15 +63,13 @@ void Window::destroyMembers() noexcept
 		return;
 
 	// wait for device idle state
-	// (to prevent errors during destruction of Vulkan resources)
-	vk::Device device = vk::Device(_device);
-	try {
-		device.waitIdle();
-	} catch(vk::Error& e) {
-		cout << "Failed because of Vulkan exception: " << e.what() << endl;
-	}
+	// (to prevent errors during destruction of Vulkan resources);
+	// we ignore any returned error codes here
+	// because the device might be in the lost state already, etc.
+	vkDeviceWaitIdle(_device);
 
 	// destroy resources
+	vk::Device device = vk::Device(_device);
 	for(auto s : renderingFinishedSemaphores)  device.destroy(s);
 	for(auto f : framebuffers)  device.destroy(f);
 	for(auto v : swapchainImageViews)  device.destroy(v);
@@ -136,14 +134,11 @@ App::App(int argc, char** argv)
 App::~App()
 {
 	// wait for device idle state
-	// (to prevent errors during destruction of Vulkan resources)
-	if(device) {
-		try {
-			device.waitIdle();
-		} catch(vk::Error& e) {
-			cout << "Failed because of Vulkan exception: " << e.what() << endl;
-		}
-	}
+	// (to prevent errors during destruction of Vulkan resources);
+	// we ignore any returned error codes here
+	// because the device might be in the lost state already, etc.
+	if(device)
+		vkDeviceWaitIdle(device);
 
 	// destroy windows
 	windowList.clear();
