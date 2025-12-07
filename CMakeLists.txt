@@ -3,6 +3,7 @@ cmake_minimum_required(VERSION 3.16.0)
 project(VulkanWindow)
 
 set(PROJECTS
+	examples/ColorSpace
 	examples/HelloWindow
 	examples/Mandelbrot
 	examples/SpinningTriangle
