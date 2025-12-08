@@ -285,9 +285,10 @@ static int getScore(vk::SurfaceFormatKHR surfaceFormat)
 		case vk::ColorSpaceKHR::ePassThroughEXT:
 			return getScoreForPassThroughFormat(surfaceFormat.format, 0, 0);
 
-		// Dolby Vision: legacy according to Vulkan spec
-		case vk::ColorSpaceKHR::eDolbyvisionEXT:
-			return getScoreForPassThroughFormat(surfaceFormat.format, 0, 0);
+		// Dolby Vision: legacy according to Vulkan spec;
+		// so it is disabled to not produce warnings about deprecation
+		// case vk::ColorSpaceKHR::eDolbyvisionEXT:
+		//    return getScoreForPassThroughFormat(surfaceFormat.format, 0, 0);
 
 		// unknown future color spaces
 		default: return getScoreForPassThroughFormat(surfaceFormat.format, 0, 0);
@@ -302,7 +303,7 @@ void App::init()
 
 	// devices without VK_KHR_surface
 	cout << "Color space related instance extensions support:\n"
-	        "   VK_KHR_surface:  ";
+	        "   VK_KHR_surface:               ";
 	auto extensionList = vk::enumerateInstanceExtensionProperties();
 	for(vk::ExtensionProperties& e : extensionList)
 		if(strcmp(e.extensionName, "VK_KHR_surface") == 0) {
