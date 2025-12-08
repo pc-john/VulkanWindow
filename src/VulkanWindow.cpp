@@ -2370,7 +2370,7 @@ void VulkanWindow::renderFrame()
 		// (this may happen on Win32-based and Xlib-based systems, for instance;
 		// in reality, it never happened on my KDE 5.80.0 (Kubuntu 21.04) and KDE 5.44.0 (Kubuntu 18.04.5)
 		// because window minimalizing just unmaps the window)
-		if(_surfaceExtent.width == 0 && _surfaceExtent.height == 0)
+		if(_surfaceExtent.width == 0 || _surfaceExtent.height == 0)
 			return;  // new frame will be scheduled on the next window resize
 
 		// recreate swapchain
