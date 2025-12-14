@@ -509,8 +509,9 @@ void App::init()
 	graphicsQueue = device.getQueue(graphicsQueueFamily, 0);
 	presentationQueue = device.getQueue(presentationQueueFamily, 0);
 
-	// provide window with Vulkan device
+	// provide window with Vulkan device and updated title
 	window.setDevice(device, physicalDevice);
+	window.setTitle(string(appName) + " - " + vk::to_string(surfaceFormat.colorSpace));
 
 	// render pass
 	renderPass =
