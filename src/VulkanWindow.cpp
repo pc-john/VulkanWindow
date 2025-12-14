@@ -60,6 +60,11 @@
 #include <stdexcept>
 #include <iostream>  // for debugging
 
+// define VULKAN_WINDOW_DEBUG to get console debug output
+#if 0
+#define VULKAN_WINDOW_DEBUG
+#endif
+
 // xcbcommon types and funcs
 // (we avoid dependency on include xkbcommon/xkbcommon.h to lessen VulkanWindow dependencies)
 #if defined(USE_PLATFORM_XLIB)
@@ -1307,9 +1312,8 @@ void VulkanWindow::finalize() noexcept
 	// finalize GLFW
 	// (it is safe to call glfwTerminate() even if GLFW was not initialized)
 	glfwTerminate();
-# if 1 // test error by assert
-	assert(glfwGetError(nullptr) == GLFW_NO_ERROR && "VulkanWindow: glfwTerminate() function failed.");
-# else // print error if any
+# ifdef VULKAN_WINDOW_DEBUG
+	// print error if any
 	const char* errorString;
 	int errorCode = glfwGetError(&errorString);
 	if(errorCode != GLFW_NO_ERROR) {
@@ -1317,6 +1321,9 @@ void VulkanWindow::finalize() noexcept
 		     << hex << errorCode << ". Error string: " << errorString << endl;
 		assert(0 && "VulkanWindow: glfwTerminate() function failed.");
 	}
+# else
+	// test error by assert
+	assert(glfwGetError(nullptr) == GLFW_NO_ERROR && "VulkanWindow: glfwTerminate() function failed.");
 # endif
 
 #elif defined(USE_PLATFORM_QT)
@@ -2361,8 +2368,10 @@ void VulkanWindow::renderFrame()
 			_surfaceExtent.width  = clamp(_surfaceExtent.width,  surfaceCapabilities.minImageExtent.width,  surfaceCapabilities.maxImageExtent.width);
 			_surfaceExtent.height = clamp(_surfaceExtent.height, surfaceCapabilities.minImageExtent.height, surfaceCapabilities.maxImageExtent.height);
 		}
+# ifdef VULKAN_WINDOW_DEBUG
 		cout << "New Qt window size in device independent pixels: " << _qt.window->width() << "x" << _qt.window->height()
 		     << ", in physical pixels: " << _surfaceExtent.width << "x" << _surfaceExtent.height << endl;
+# endif
 #endif
 
 		// zero size swapchain is not allowed,
@@ -2760,7 +2769,9 @@ try {
 		// window resize message
 		// (we schedule swapchain resize here)
 		case WM_SIZE: {
+		#ifdef VULKAN_WINDOW_DEBUG
 			cout << "WM_SIZE message (" << LOWORD(lParam) << "x" << HIWORD(lParam) << ")" << endl;
+		#endif
 			if(LOWORD(lParam) != 0 && HIWORD(lParam) != 0) {
 				VulkanWindowPrivate* w = reinterpret_cast<VulkanWindowPrivate*>(GetWindowLongPtr(hwnd, 0));
 				w->scheduleResize();
@@ -2804,7 +2815,9 @@ try {
 		// (we call _closeCallback here if registered,
 		// otherwise we hide the window and schedule main loop exit)
 		case WM_CLOSE: {
+		#ifdef VULKAN_WINDOW_DEBUG
 			cout << "WM_CLOSE message" << endl;
+		#endif
 			VulkanWindowPrivate* w = reinterpret_cast<VulkanWindowPrivate*>(GetWindowLongPtr(hwnd, 0));
 			if(w->_closeCallback)
 				w->_closeCallback(*w);  // VulkanWindow object might be already destroyed when returning from the callback
@@ -2818,8 +2831,9 @@ try {
 		// destroy window message
 		// (we make sure that the window is not in framePendingWindows list)
 		case WM_DESTROY: {
-
+		#ifdef VULKAN_WINDOW_DEBUG
 			cout << "WM_DESTROY message" << endl;
+		#endif
 
 			// remove frame pending state
 			VulkanWindowPrivate* w = reinterpret_cast<VulkanWindowPrivate*>(GetWindowLongPtr(hwnd, 0));
@@ -2948,12 +2962,16 @@ void VulkanWindow::updateMinimized()
 			&data  // prop_return
 		) == Success && itemsRead > 0)
 	{
+	#ifdef VULKAN_WINDOW_DEBUG
 		cout << "New WM_STATE: " << *reinterpret_cast<unsigned*>(data) << endl;
+	#endif
 		_xlib.minimized = *reinterpret_cast<unsigned*>(data) == 3;
 		XFree(data);
 	}
+	#ifdef VULKAN_WINDOW_DEBUG
 	else
 		cout << "WM_STATE reading failed" << endl;
+	#endif
 }
 
 
@@ -3026,7 +3044,9 @@ void VulkanWindow::mainLoop()
 		// configure event
 		if(e.type == ConfigureNotify) {
 			if(e.xconfigure.width != int(w->_surfaceExtent.width) || e.xconfigure.height != int(w->_surfaceExtent.height)) {
+			#ifdef VULKAN_WINDOW_DEBUG
 				cout << "Configure event " << e.xconfigure.width << "x" << e.xconfigure.height << endl;
+			#endif
 				w->scheduleResize();
 			}
 			continue;
@@ -3039,7 +3059,9 @@ void VulkanWindow::mainLoop()
 			continue;
 		}
 		if(e.type == ButtonPress) {
+		#ifdef VULKAN_WINDOW_DEBUG
 			cout << "state: " << e.xbutton.state << endl;
+		#endif
 			handleModifiers(w, e.xbutton.state);
 			handleMouseMove(w, float(e.xbutton.x), float(e.xbutton.y));
 			if(e.xbutton.button < Button4 || e.xbutton.button > 7) {
@@ -3140,7 +3162,9 @@ void VulkanWindow::mainLoop()
 		// map, unmap, obscured, unobscured
 		if(e.type == MapNotify)
 		{
-			cout<<"MapNotify"<<endl;
+		#ifdef VULKAN_WINDOW_DEBUG
+			cout << "MapNotify" << endl;
+		#endif
 			if(w->_xlib.visible)
 				continue;
 			w->_xlib.visible = true;
@@ -3150,7 +3174,9 @@ void VulkanWindow::mainLoop()
 		}
 		if(e.type == UnmapNotify)
 		{
-			cout<<"UnmapNotify"<<endl;
+		#ifdef VULKAN_WINDOW_DEBUG
+			cout << "UnmapNotify" << endl;
+		#endif
 			if(w->_xlib.visible == false)
 				continue;
 			w->_xlib.visible = false;
@@ -3164,13 +3190,17 @@ void VulkanWindow::mainLoop()
 		if(e.type == VisibilityNotify) {
 			if(e.xvisibility.state != VisibilityFullyObscured)
 			{
+			#ifdef VULKAN_WINDOW_DEBUG
 				cout << "Window not fully obscured" << endl;
+			#endif
 				w->_xlib.fullyObscured = false;
 				w->scheduleFrame();
 				continue;
 			}
 			else {
+			#ifdef VULKAN_WINDOW_DEBUG
 				cout << "Window fully obscured" << endl;
+			#endif
 				w->_xlib.fullyObscured = true;
 				XEvent tmp;
 				while(XCheckTypedWindowEvent(xlib::display, w->_xlib.window, Expose, &tmp) == True);
@@ -3314,7 +3344,9 @@ void VulkanWindow::show(void (*xdgConfigFunc)(VulkanWindow&), void (*libdecorCon
 
 void VulkanWindowPrivate::xdgToplevelListenerConfigure(void* data, xdg_toplevel* toplevel, int32_t width, int32_t height, wl_array* states)
 {
+#ifdef VULKAN_WINDOW_DEBUG
 	cout << "toplevel configure (width=" << width << ", height=" << height << ")" << endl;
+#endif
 
 	// update window state
 	// (following for loop is equivalent to wl_array_for_each(s, states) used in C)
@@ -3356,7 +3388,9 @@ void VulkanWindowPrivate::xdgToplevelListenerConfigure(void* data, xdg_toplevel*
 
 void VulkanWindowPrivate::xdgSurfaceListenerConfigure(void* data, xdg_surface* xdgSurface, uint32_t serial)
 {
+#ifdef VULKAN_WINDOW_DEBUG
 	cout << "surface configure" << endl;
+#endif
 	VulkanWindowPrivate* w = static_cast<VulkanWindowPrivate*>(data);
 	xdg_surface_ack_configure(xdgSurface, serial);
 	wl_surface_commit(w->_wayland.wlSurface);
@@ -3405,7 +3439,9 @@ void VulkanWindowPrivate::libdecorFrameConfigure(libdecor_frame* frame, libdecor
 		}
 	}
 
+#ifdef VULKAN_WINDOW_DEBUG
 	cout << "libdecor configure: " << w->_surfaceExtent.width <<"x" << w->_surfaceExtent.height << endl;
+#endif
 
 	// set new window state
 	libdecor_state* state = wayland::funcs.libdecor_state_new(w->_surfaceExtent.width, w->_surfaceExtent.height);
@@ -3424,7 +3460,9 @@ void VulkanWindowPrivate::libdecorFrameConfigure(libdecor_frame* frame, libdecor
 
 void VulkanWindowPrivate::libdecorFrameCommit(libdecor_frame* frame, void* data)
 {
+#ifdef VULKAN_WINDOW_DEBUG
 	cout << "libdecor commit" << endl;
+#endif
 	wl_surface_commit(static_cast<VulkanWindowPrivate*>(data)->_wayland.wlSurface);
 }
 
@@ -3511,7 +3549,9 @@ void VulkanWindow::hide()
 void VulkanWindow::mainLoop()
 {
 	// flush outgoing buffers
+#ifdef VULKAN_WINDOW_DEBUG
 	cout << "Entering main loop." << endl;
+#endif
 	if(wl_display_flush(wayland::display) == -1)
 		throw runtime_error("wl_display_flush() failed.");
 
@@ -3532,7 +3572,9 @@ void VulkanWindow::mainLoop()
 			throw runtime_error("wl_display_flush() failed.");
 
 	}
+#ifdef VULKAN_WINDOW_DEBUG
 	cout << "Main loop left." << endl;
+#endif
 }
 
 
@@ -3550,7 +3592,9 @@ void VulkanWindow::scheduleFrame()
 	if(_wayland.scheduledFrameCallback)
 		return;
 
+#ifdef VULKAN_WINDOW_DEBUG
 	cout << "s" << flush;
+#endif
 	_wayland.scheduledFrameCallback = wl_surface_frame(_wayland.wlSurface);
 	if(wl_callback_add_listener(_wayland.scheduledFrameCallback, &frameListener, this))
 		throw runtime_error("wl_callback_add_listener() failed.");
@@ -3560,7 +3604,9 @@ void VulkanWindow::scheduleFrame()
 
 void VulkanWindowPrivate::frameListenerDone(void *data, wl_callback* cb, uint32_t time)
 {
+#ifdef VULKAN_WINDOW_DEBUG
 	cout << "cb" << flush;
+#endif
 	VulkanWindowPrivate* w = static_cast<VulkanWindowPrivate*>(data);
 	w->_wayland.scheduledFrameCallback = nullptr;
 	w->renderFrame();
@@ -3960,14 +4006,18 @@ void VulkanWindow::mainLoop()
 		}
 
 		case SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED: {
+		#ifdef VULKAN_WINDOW_DEBUG
 			cout << "Size changed event" << endl;
+		#endif
 			VulkanWindow* w = getWindow(event.window.windowID);
 			w->scheduleResize();
 			break;
 		}
 
 		case SDL_EVENT_WINDOW_SHOWN: {
+		#ifdef VULKAN_WINDOW_DEBUG
 			cout << "Shown event" << endl;
+		#endif
 			VulkanWindow* w = getWindow(event.window.windowID);
 			w->_sdl.visible = true;
 			w->_sdl.minimized = false;
@@ -3979,7 +4029,9 @@ void VulkanWindow::mainLoop()
 		}
 
 		case SDL_EVENT_WINDOW_HIDDEN: {
+		#ifdef VULKAN_WINDOW_DEBUG
 			cout << "Hidden event" << endl;
+		#endif
 			VulkanWindow* w = getWindow(event.window.windowID);
 			w->_sdl.visible = false;
 			if(w->_sdl.framePending) {
@@ -3990,7 +4042,9 @@ void VulkanWindow::mainLoop()
 		}
 
 		case SDL_EVENT_WINDOW_MINIMIZED: {
+		#ifdef VULKAN_WINDOW_DEBUG
 			cout << "Minimized event" << endl;
+		#endif
 			VulkanWindow* w = getWindow(event.window.windowID);
 			w->_sdl.minimized = true;
 			if(w->_sdl.framePending) {
@@ -4001,7 +4055,9 @@ void VulkanWindow::mainLoop()
 		}
 
 		case SDL_EVENT_WINDOW_RESTORED: {
+		#ifdef VULKAN_WINDOW_DEBUG
 			cout << "Restored event" << endl;
+		#endif
 			VulkanWindow* w = getWindow(event.window.windowID);
 			w->_sdl.minimized = false;
 			if(w->_sdl.hiddenWindowFramePending) {
@@ -4012,7 +4068,9 @@ void VulkanWindow::mainLoop()
 		}
 
 		case SDL_EVENT_WINDOW_CLOSE_REQUESTED: {
+		#ifdef VULKAN_WINDOW_DEBUG
 			cout << "Close event" << endl;
+		#endif
 			VulkanWindow* w = getWindow(event.window.windowID);
 			if(w->_closeCallback)
 				w->_closeCallback(*w);  // VulkanWindow object might be already destroyed when returning from the callback
@@ -4274,7 +4332,9 @@ void VulkanWindow::mainLoop()
 			}
 
 			case SDL_WINDOWEVENT_SIZE_CHANGED: {
+			#ifdef VULKAN_WINDOW_DEBUG
 				cout << "Size changed event" << endl;
+			#endif
 				VulkanWindow* w = reinterpret_cast<VulkanWindow*>(
 					SDL_GetWindowData(SDL_GetWindowFromID(event.window.windowID), sdl::windowPointerName));
 				w->scheduleResize();
@@ -4282,7 +4342,9 @@ void VulkanWindow::mainLoop()
 			}
 
 			case SDL_WINDOWEVENT_SHOWN: {
+			#ifdef VULKAN_WINDOW_DEBUG
 				cout << "Shown event" << endl;
+			#endif
 				VulkanWindow* w = reinterpret_cast<VulkanWindow*>(
 					SDL_GetWindowData(SDL_GetWindowFromID(event.window.windowID), sdl::windowPointerName));
 				w->_sdl.visible = true;
@@ -4295,7 +4357,9 @@ void VulkanWindow::mainLoop()
 			}
 
 			case SDL_WINDOWEVENT_HIDDEN: {
+			#ifdef VULKAN_WINDOW_DEBUG
 				cout << "Hidden event" << endl;
+			#endif
 				VulkanWindow* w = reinterpret_cast<VulkanWindow*>(
 					SDL_GetWindowData(SDL_GetWindowFromID(event.window.windowID), sdl::windowPointerName));
 				w->_sdl.visible = false;
@@ -4307,7 +4371,9 @@ void VulkanWindow::mainLoop()
 			}
 
 			case SDL_WINDOWEVENT_MINIMIZED: {
+			#ifdef VULKAN_WINDOW_DEBUG
 				cout << "Minimized event" << endl;
+			#endif
 				VulkanWindow* w = reinterpret_cast<VulkanWindow*>(
 					SDL_GetWindowData(SDL_GetWindowFromID(event.window.windowID), sdl::windowPointerName));
 				w->_sdl.minimized = true;
@@ -4319,7 +4385,9 @@ void VulkanWindow::mainLoop()
 			}
 
 			case SDL_WINDOWEVENT_RESTORED: {
+			#ifdef VULKAN_WINDOW_DEBUG
 				cout << "Restored event" << endl;
+			#endif
 				VulkanWindow* w = reinterpret_cast<VulkanWindow*>(
 					SDL_GetWindowData(SDL_GetWindowFromID(event.window.windowID), sdl::windowPointerName));
 				w->_sdl.minimized = false;
@@ -4331,7 +4399,9 @@ void VulkanWindow::mainLoop()
 			}
 
 			case SDL_WINDOWEVENT_CLOSE: {
+			#ifdef VULKAN_WINDOW_DEBUG
 				cout << "Close event" << endl;
+			#endif
 				VulkanWindow* w = reinterpret_cast<VulkanWindow*>(
 					SDL_GetWindowData(SDL_GetWindowFromID(event.window.windowID), sdl::windowPointerName));
 				if(w->_closeCallback)
@@ -4761,7 +4831,9 @@ bool QtRenderingWindow::event(QEvent* event)
 		switch(event->type()) {
 
 		case QEvent::Type::Timer:
-			cout<<"t";
+		#ifdef VULKAN_WINDOW_DEBUG
+			cout << "t";
+		#endif
 			killTimer(timer);
 			timer = 0;
 			if(isExposed())
@@ -4769,7 +4841,9 @@ bool QtRenderingWindow::event(QEvent* event)
 			return true;
 
 		case QEvent::Type::Expose: {
-			cout<<"e";
+		#ifdef VULKAN_WINDOW_DEBUG
+			cout << "e";
+		#endif
 			bool r = QWindow::event(event);
 			if(isExposed())
 				vulkanWindow->scheduleFrame();
