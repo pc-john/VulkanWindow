@@ -343,7 +343,7 @@ void App::init()
 
 	// create surface
 	vk::SurfaceKHR surface =
-		window.create(instance, {1024, 768}, appName);
+		window.create(instance, {768, 768}, appName);
 
 	// get devices:
 	// - compatibleDevices - devices that can present in the created window
@@ -770,7 +770,7 @@ void App::resize(VulkanWindow&, const vk::SurfaceCapabilitiesKHR& surfaceCapabil
 				// input assembly
 				&(const vk::PipelineInputAssemblyStateCreateInfo&)vk::PipelineInputAssemblyStateCreateInfo{  // pInputAssemblyState
 					vk::PipelineInputAssemblyStateCreateFlags(),  // flags
-					vk::PrimitiveTopology::eTriangleList,  // topology
+					vk::PrimitiveTopology::eTriangleFan,  // topology
 					VK_FALSE  // primitiveRestartEnable
 				},
 
@@ -917,7 +917,7 @@ void App::frame(VulkanWindow&)
 	// rendering commands
 	commandBuffer.bindPipeline(vk::PipelineBindPoint::eGraphics, pipeline);  // bind pipeline
 	commandBuffer.draw(  // draw single triangle
-		3,  // vertexCount
+		444,  // vertexCount
 		1,  // instanceCount
 		0,  // firstVertex
 		0   // firstInstance
