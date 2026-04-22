@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2022-2025 PCJohn (Jan Pečiva, peciva@fit.vut.cz)
+//
+// SPDX-License-Identifier: MIT-0
+
 #version 450
 
 out gl_PerVertex {

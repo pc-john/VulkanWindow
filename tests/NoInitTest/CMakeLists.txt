@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2025 PCJohn (Jan Pečiva, peciva@fit.vut.cz)
+#
+# SPDX-License-Identifier: MIT-0
+
 set(APP_NAME NoInitTest)
 
 project(${APP_NAME})
