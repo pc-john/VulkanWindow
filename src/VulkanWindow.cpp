@@ -1901,15 +1901,21 @@ VkSurfaceKHR VulkanWindow::createInternal(VkInstance instance, uint32_t width, u
 	_win32.hiddenWindowFramePending = false;
 	_win32.titleBarLeftButtonDownMsgOnHold = false;
 
+	DWORD style = WS_OVERLAPPEDWINDOW;
+	DWORD exStyle = WS_EX_CLIENTEDGE;
+	RECT rect{ 0, 0, LONG(_surfaceWidth), LONG(_surfaceHeight) };
+	if(AdjustWindowRectEx(&rect, style, BOOL(0), exStyle) == 0)
+		throw runtime_error("VulkanWindow: Cannot create window. The function AdjustWindowRectEx() failed.");
+
 	// create window
 	_win32.hwnd =
 		CreateWindowExW(
-			WS_EX_CLIENTEDGE,  // dwExStyle
+			exStyle,  // dwExStyle
 			LPWSTR(MAKEINTATOM(win32::windowClass)),  // lpClassName
 			utf8toWString(_title).c_str(),  // lpWindowName
-			WS_OVERLAPPEDWINDOW,  // dwStyle
+			style,  // dwStyle
 			CW_USEDEFAULT, CW_USEDEFAULT,  // x,y
-			int(_surfaceWidth), int(_surfaceHeight),  // width, height
+			int(rect.right - rect.left), int(rect.bottom - rect.top),  // width, height
 			NULL, NULL, HINSTANCE(win32::hInstance), NULL  // hWndParent, hMenu, hInstance, lpParam
 		);
 	if(_win32.hwnd == NULL)
