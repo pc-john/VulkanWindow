@@ -3,7 +3,6 @@
 // SPDX-License-Identifier: MIT-0
 
 #if defined(USE_PLATFORM_WIN32)
-# define VK_USE_PLATFORM_WIN32_KHR
 # ifndef NOMINMAX
 #  define NOMINMAX  // avoid the definition of min and max macros by windows.h
 # endif
@@ -15,11 +14,9 @@
 # include <tchar.h>
 # include <type_traits>
 #elif defined(USE_PLATFORM_XLIB)
-# define VK_USE_PLATFORM_XLIB_KHR
 # include <X11/Xutil.h>
 # include <map>
 #elif defined(USE_PLATFORM_WAYLAND)
-# define VK_USE_PLATFORM_WAYLAND_KHR
 # include "xdg-shell-client-protocol.h"
 # include "xdg-decoration-client-protocol.h"
 # include <wayland-cursor.h>
@@ -1365,13 +1362,16 @@ void VulkanWindow::destroy() noexcept
 #if !defined(USE_PLATFORM_QT)
 	if(_instance && _surface)
 	{
+		// vkDestroySurfaceKHR function type (to avoid dependency on Vulkan headers)
+		typedef void (__stdcall *PFN_vkDestroySurfaceKHR)(VkInstance instance, VkSurfaceKHR surface, const void* pAllocator);
+
 		// get function pointer
 		// (we do not store the pointer because it is used only once in life-time of the VulkanWindow)
-		PFN_vkDestroySurfaceKHR vulkanDestroySurfaceKHR =
-			reinterpret_cast<PFN_vkDestroySurfaceKHR>(_vulkanGetInstanceProcAddr(_instance, "vkDestroySurfaceKHR"));
+		PFN_vkDestroySurfaceKHR vkDestroySurfaceKHR =
+			reinterpret_cast<PFN_vkDestroySurfaceKHR>(_vkGetInstanceProcAddr(_instance, "vkDestroySurfaceKHR"));
 
 		// destroy surface
-		vulkanDestroySurfaceKHR(_instance, _surface, nullptr);
+		vkDestroySurfaceKHR(_instance, _surface, nullptr);
 		_surface = nullptr;
 	}
 #else
@@ -1656,14 +1656,11 @@ VulkanWindow::VulkanWindow(VulkanWindow&& other) noexcept
 	// move members
 	_frameCallback = move(other._frameCallback);
 	_instance = move(other._instance);
-	_physicalDevice = move(other._physicalDevice);
-	_device = move(other._device);
 	_surface = other._surface;
 	other._surface = nullptr;
-	_vulkanGetInstanceProcAddr = other._vulkanGetInstanceProcAddr;
-	_vulkanDeviceWaitIdle = other._vulkanDeviceWaitIdle;
-	_vulkanGetPhysicalDeviceSurfaceCapabilitiesKHR = other._vulkanGetPhysicalDeviceSurfaceCapabilitiesKHR;
-	_surfaceExtent = other._surfaceExtent;
+	_vkGetInstanceProcAddr = other._vkGetInstanceProcAddr;
+	_surfaceWidth = other._surfaceWidth;
+	_surfaceHeight= other._surfaceHeight;
 	_resizePending = other._resizePending;
 	_resizeCallback = move(other._resizeCallback);
 	_closeCallback = move(other._closeCallback);
@@ -1791,14 +1788,11 @@ VulkanWindow& VulkanWindow::operator=(VulkanWindow&& other) noexcept
 	// move members
 	_frameCallback = move(other._frameCallback);
 	_instance = move(other._instance);
-	_physicalDevice = move(other._physicalDevice);
-	_device = move(other._device);
 	_surface = other._surface;
 	other._surface = nullptr;
-	_vulkanGetInstanceProcAddr = other._vulkanGetInstanceProcAddr;
-	_vulkanDeviceWaitIdle = other._vulkanDeviceWaitIdle;
-	_vulkanGetPhysicalDeviceSurfaceCapabilitiesKHR = other._vulkanGetPhysicalDeviceSurfaceCapabilitiesKHR;
-	_surfaceExtent = other._surfaceExtent;
+	_vkGetInstanceProcAddr = other._vkGetInstanceProcAddr;
+	_surfaceWidth = other._surfaceWidth;
+	_surfaceHeight= other._surfaceHeight;
 	_resizePending = other._resizePending;
 	_resizeCallback = move(other._resizeCallback);
 	_closeCallback = move(other._closeCallback);
@@ -1813,21 +1807,21 @@ VulkanWindow& VulkanWindow::operator=(VulkanWindow&& other) noexcept
 }
 
 
-VkSurfaceKHR VulkanWindow::create(VkInstance instance, VkExtent2D surfaceExtent, const string& title,
-                                  PFN_vkGetInstanceProcAddr getInstanceProcAddr)
+VkSurfaceKHR VulkanWindow::create(VkInstance instance, uint32_t width, uint32_t height,
+                                  string_view title, PFN_vkGetInstanceProcAddr getInstanceProcAddr)
 {
 	// destroy any previous window data
 	// (this makes calling create() multiple times safe operation)
 	destroy();
 
 	_title = title;
+	_vkGetInstanceProcAddr = getInstanceProcAddr;
 
-	return createInternal(instance, surfaceExtent, getInstanceProcAddr);
+	return createInternal(instance, width, height);
 }
 
 
-VkSurfaceKHR VulkanWindow::createInternal(VkInstance instance, VkExtent2D surfaceExtent,
-                                          PFN_vkGetInstanceProcAddr getInstanceProcAddr)
+VkSurfaceKHR VulkanWindow::createInternal(VkInstance instance, uint32_t width, uint32_t height)
 {
 	// asserts for valid usage
 	assert(instance && "The parameter instance must not be null.");
@@ -1847,16 +1841,8 @@ VkSurfaceKHR VulkanWindow::createInternal(VkInstance instance, VkExtent2D surfac
 	_instance = instance;
 
 	// set surface extent
-	_surfaceExtent = surfaceExtent;
-
-	// set Vulkan function pointers
-	_vulkanGetInstanceProcAddr = getInstanceProcAddr;
-	if(_vulkanGetInstanceProcAddr == nullptr)
-		throw runtime_error("VulkanWindow: getInstanceProcAddr parameter passed into VulkanWindow::create() must not be nullptr.");
-	_vulkanGetPhysicalDeviceSurfaceCapabilitiesKHR = reinterpret_cast<PFN_vkGetPhysicalDeviceSurfaceCapabilitiesKHR>(
-		getInstanceProcAddr(_instance, "vkGetPhysicalDeviceSurfaceCapabilitiesKHR"));
-	if(_vulkanGetPhysicalDeviceSurfaceCapabilitiesKHR == nullptr)
-		throw runtime_error("VulkanWindow: Failed to get vkGetPhysicalDeviceSurfaceCapabilitiesKHR function pointer.");
+	_surfaceWidth = width;
+	_surfaceHeight = height;
 
 #if defined(USE_PLATFORM_WIN32)
 
@@ -1874,7 +1860,7 @@ VkSurfaceKHR VulkanWindow::createInternal(VkInstance instance, VkExtent2D surfac
 			utf8toWString(_title).c_str(),  // lpWindowName
 			WS_OVERLAPPEDWINDOW,  // dwStyle
 			CW_USEDEFAULT, CW_USEDEFAULT,  // x,y
-			surfaceExtent.width, surfaceExtent.height,  // width, height
+			int(_surfaceWidth), int(_surfaceHeight),  // width, height
 			NULL, NULL, HINSTANCE(win32::hInstance), NULL  // hWndParent, hMenu, hInstance, lpParam
 		);
 	if(_win32.hwnd == NULL)
@@ -1883,13 +1869,26 @@ VkSurfaceKHR VulkanWindow::createInternal(VkInstance instance, VkExtent2D surfac
 	// store this pointer with the window data
 	SetWindowLongPtr(HWND(_win32.hwnd), 0, LONG_PTR(this));
 
+	// Vulkan type definitions
+	using VkResult = uint32_t;
+	using VkStructureType = uint32_t;
+	struct VkWin32SurfaceCreateInfoKHR {
+		VkStructureType  sType;
+		const void*      pNext;
+		uint32_t         flags;
+		HINSTANCE        hinstance;
+		HWND             hwnd;
+	};
+	constexpr const VkStructureType VK_STRUCTURE_TYPE_WIN32_SURFACE_CREATE_INFO_KHR = 1000009000;
+	typedef VkResult (__stdcall *PFN_vkCreateWin32SurfaceKHR)(VkInstance instance, const VkWin32SurfaceCreateInfoKHR* pCreateInfo, const void* pAllocator, VkSurfaceKHR* pSurface);
+
 	// create surface
-	PFN_vkCreateWin32SurfaceKHR vulkanCreateWin32SurfaceKHR =
-		reinterpret_cast<PFN_vkCreateWin32SurfaceKHR>(getInstanceProcAddr(_instance, "vkCreateWin32SurfaceKHR"));
-	if(vulkanCreateWin32SurfaceKHR == nullptr)
+	PFN_vkCreateWin32SurfaceKHR vkCreateWin32SurfaceKHR =
+		reinterpret_cast<PFN_vkCreateWin32SurfaceKHR>(_vkGetInstanceProcAddr(_instance, "vkCreateWin32SurfaceKHR"));
+	if(vkCreateWin32SurfaceKHR == nullptr)
 		throw runtime_error("VulkanWindow: Failed to get vkCreateWin32SurfaceKHR function pointer.");
 	VkResult r =
-		vulkanCreateWin32SurfaceKHR(
+		vkCreateWin32SurfaceKHR(
 			_instance,  // instance
 			&(const VkWin32SurfaceCreateInfoKHR&)VkWin32SurfaceCreateInfoKHR{  // pCreateInfo
 				VK_STRUCTURE_TYPE_WIN32_SURFACE_CREATE_INFO_KHR,  // sType
@@ -1901,7 +1900,7 @@ VkSurfaceKHR VulkanWindow::createInternal(VkInstance instance, VkExtent2D surfac
 			nullptr,  // pAllocator
 			reinterpret_cast<VkSurfaceKHR*>(&_surface)  // pSurface
 		);
-	if(r != VK_SUCCESS)
+	if(r != 0)  // compare to VK_SUCCESS
 		throw runtime_error(string("VulkanWindow: vkCreateWin32SurfaceKHR() failed (return code: ") + to_string(r) + ").");
 
 	return _surface;
@@ -2027,7 +2026,7 @@ VkSurfaceKHR VulkanWindow::createInternal(VkInstance instance, VkExtent2D surfac
 	// create Vulkan window
 	_sdl.window = SDL_CreateWindow(
 		_title.c_str(),  // title
-		surfaceExtent.width, surfaceExtent.height,  // w,h
+		int(_surfaceWidth), int(_surfaceHeight),  // w,h
 		SDL_WINDOW_VULKAN | SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIDDEN  // flags
 	);
 	if(_sdl.window == nullptr)
@@ -2058,7 +2057,7 @@ VkSurfaceKHR VulkanWindow::createInternal(VkInstance instance, VkExtent2D surfac
 	_sdl.window = SDL_CreateWindow(
 		_title.c_str(),  // title
 		SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED,  // x,y
-		surfaceExtent.width, surfaceExtent.height,  // w,h
+		int(_surfaceWidth), int(_surfaceHeight),  // w,h
 		SDL_WINDOW_VULKAN | SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIDDEN  // flags
 	);
 	if(_sdl.window == nullptr)
@@ -2081,8 +2080,8 @@ VkSurfaceKHR VulkanWindow::createInternal(VkInstance instance, VkExtent2D surfac
 	_glfw.minimized = false;
 	_glfw.savedPosX = 0;
 	_glfw.savedPosY = 0;
-	_glfw.savedWidth = surfaceExtent.width;
-	_glfw.savedHeight = surfaceExtent.height;
+	_glfw.savedWidth = int(_surfaceWidth);
+	_glfw.savedHeight = int(_surfaceHeight);
 
 	// create window
 	glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
@@ -2092,7 +2091,7 @@ VkSurfaceKHR VulkanWindow::createInternal(VkInstance instance, VkExtent2D surfac
 		// glfwShowWindow(): "Wayland: Focusing a window requires user interaction"; seen on glfw 3.3.8 and Kubuntu 22.10,
 		// however we need the focus on show on Win32 to get proper window focus
 # endif
-	_glfw.window = glfwCreateWindow(surfaceExtent.width, surfaceExtent.height, _title.c_str(), nullptr, nullptr);
+	_glfw.window = glfwCreateWindow(int(_surfaceWidth), int(_surfaceHeight), _title.c_str(), nullptr, nullptr);
 	if(_glfw.window == nullptr)
 		throwError("glfwCreateWindow");
 
@@ -2263,7 +2262,7 @@ VkSurfaceKHR VulkanWindow::createInternal(VkInstance instance, VkExtent2D surfac
 	_qt.window = new QtRenderingWindow(nullptr, this);
 	_qt.window->setSurfaceType(QSurface::VulkanSurface);
 	_qt.window->setVulkanInstance(qt::qVulkanInstance);
-	_qt.window->resize(surfaceExtent.width, surfaceExtent.height);
+	_qt.window->resize(int(_surfaceWidth), int(_surfaceHeight));
 	_qt.window->create();
 
 	// return Vulkan surface
@@ -2276,119 +2275,27 @@ VkSurfaceKHR VulkanWindow::createInternal(VkInstance instance, VkExtent2D surfac
 }
 
 
-void VulkanWindow::setDevice(VkDevice device, VkPhysicalDevice physicalDevice)
-{
-	assert(_instance && "VulkanWindow::setDevice(): Call VulkanWindow::create() first.");
-
-	_physicalDevice = physicalDevice;
-	_device = device;
-
-	// initialize vkDeviceWaitIdle function pointer
-	PFN_vkGetDeviceProcAddr vulkanGetDeviceProcAddr = reinterpret_cast<PFN_vkGetDeviceProcAddr>(
-		_vulkanGetInstanceProcAddr(_instance, "vkGetDeviceProcAddr"));
-	if(vulkanGetDeviceProcAddr == nullptr)
-		throw runtime_error("VulkanWindow: Failed to get vkGetDeviceProcAddr function pointer.");
-	_vulkanDeviceWaitIdle = reinterpret_cast<PFN_vkDeviceWaitIdle>(
-		vulkanGetDeviceProcAddr(_device, "vkDeviceWaitIdle"));
-	if(_vulkanDeviceWaitIdle == nullptr)
-		throw runtime_error("VulkanWindow: Failed to get vkDeviceWaitIdle function pointer.");
-}
-
-
 void VulkanWindow::renderFrame()
 {
 	// assert for valid usage
 	assert(_surface && "VulkanWindow::_surface is null, indicating invalid VulkanWindow object. Call VulkanWindow::create() to initialize it.");
-	assert(_device && "VulkanWindow::_device is null, indicating invalid VulkanWindow object. Call VulkanWindow::setDevice() before the first frame is rendered.");
 
-	// recreate swapchain if requested
+	// resize if requested
 	if(_resizePending) {
 
-		// make sure that we finished all the rendering
-		// (this is necessary for swapchain re-creation)
-		VkResult r =
-			_vulkanDeviceWaitIdle(_device);
-		if(r != VK_SUCCESS)
-			throw runtime_error(string("VulkanWindow: vkDeviceWaitIdle() failed "
-			                    "(return code: ") + to_string(r) + ").");
-
-		// get surface capabilities
-		// On Win32 and Xlib, currentExtent, minImageExtent and maxImageExtent of returned surfaceCapabilites are all equal.
-		// It means that we can create a new swapchain only with imageExtent being equal to the window size.
-		// The currentExtent might become 0,0 on Win32 and Xlib platform, for example, when the window is minimized.
-		// If the currentExtent is not 0,0, both width and height must be greater than 0.
-		// On Wayland, currentExtent might be 0xffffffff, 0xffffffff with the meaning that the window extent
-		// will be determined by the extent of the swapchain.
-		// Wayland's minImageExtent is 1,1 and maxImageExtent is the maximum supported surface size.
-		VkSurfaceCapabilitiesKHR surfaceCapabilities;
-		r =
-			_vulkanGetPhysicalDeviceSurfaceCapabilitiesKHR(
-				_physicalDevice,
-				_surface,
-				&surfaceCapabilities
-			);
-		if(r != VK_SUCCESS)
-			throw runtime_error(string("VulkanWindow: vkGetPhysicalDeviceSurfaceCapabilities() failed "
-			                    "(return code: ") + to_string(r) + ").");
-
-#if defined(USE_PLATFORM_WIN32)
-		_surfaceExtent = surfaceCapabilities.currentExtent;
-#elif defined(USE_PLATFORM_XLIB)
-		_surfaceExtent = surfaceCapabilities.currentExtent;
-#elif defined(USE_PLATFORM_WAYLAND)
-		// do nothing here
-		// because _surfaceExtent is set in _xdgToplevelListener's configure callback
-#elif defined(USE_PLATFORM_SDL3)
-		// get surface size using SDL
-		if(!SDL_GetWindowSizeInPixels(_sdl.window, reinterpret_cast<int*>(&_surfaceExtent.width), reinterpret_cast<int*>(&_surfaceExtent.height)))
-			throw runtime_error(string("VulkanWindow: SDL_GetWindowSizeInPixels() function failed. Error details: ") + SDL_GetError());
-		_surfaceExtent.width  = clamp(_surfaceExtent.width,  surfaceCapabilities.minImageExtent.width,  surfaceCapabilities.maxImageExtent.width);
-		_surfaceExtent.height = clamp(_surfaceExtent.height, surfaceCapabilities.minImageExtent.height, surfaceCapabilities.maxImageExtent.height);
-#elif defined(USE_PLATFORM_SDL2)
-		// get surface size using SDL
-		SDL_Vulkan_GetDrawableSize(_sdl.window, reinterpret_cast<int*>(&_surfaceExtent.width), reinterpret_cast<int*>(&_surfaceExtent.height));
-		_surfaceExtent.width  = clamp(_surfaceExtent.width,  surfaceCapabilities.minImageExtent.width,  surfaceCapabilities.maxImageExtent.width);
-		_surfaceExtent.height = clamp(_surfaceExtent.height, surfaceCapabilities.minImageExtent.height, surfaceCapabilities.maxImageExtent.height);
-#elif defined(USE_PLATFORM_GLFW)
-		// get surface size using GLFW
-		// (0xffffffff values might be returned on Wayland)
-		if(surfaceCapabilities.currentExtent.width != 0xffffffff && surfaceCapabilities.currentExtent.height != 0xffffffff)
-			_surfaceExtent = surfaceCapabilities.currentExtent;
-		else {
-			glfwGetFramebufferSize(_glfw.window, reinterpret_cast<int*>(&_surfaceExtent.width), reinterpret_cast<int*>(&_surfaceExtent.height));
-			checkError("glfwGetFramebufferSize");
-			_surfaceExtent.width  = clamp(_surfaceExtent.width,  surfaceCapabilities.minImageExtent.width,  surfaceCapabilities.maxImageExtent.width);
-			_surfaceExtent.height = clamp(_surfaceExtent.height, surfaceCapabilities.minImageExtent.height, surfaceCapabilities.maxImageExtent.height);
-		}
-#elif defined(USE_PLATFORM_QT)
-		// get surface size using Qt
-		// (0xffffffff values might be returned on Wayland)
-		if(surfaceCapabilities.currentExtent.width != 0xffffffff && surfaceCapabilities.currentExtent.height != 0xffffffff)
-			_surfaceExtent = surfaceCapabilities.currentExtent;
-		else {
-			QSize size = _qt.window->size();
-			auto ratio = _qt.window->devicePixelRatio();
-			_surfaceExtent = VkExtent2D{uint32_t(float(size.width()) * ratio + 0.5f), uint32_t(float(size.height()) * ratio + 0.5f)};
-			_surfaceExtent.width  = clamp(_surfaceExtent.width,  surfaceCapabilities.minImageExtent.width,  surfaceCapabilities.maxImageExtent.width);
-			_surfaceExtent.height = clamp(_surfaceExtent.height, surfaceCapabilities.minImageExtent.height, surfaceCapabilities.maxImageExtent.height);
-		}
-# ifdef VULKAN_WINDOW_DEBUG
-		cout << "New Qt window size in device independent pixels: " << _qt.window->width() << "x" << _qt.window->height()
-		     << ", in physical pixels: " << _surfaceExtent.width << "x" << _surfaceExtent.height << endl;
-# endif
-#endif
-
-		// zero size swapchain is not allowed,
-		// so we will repeat the resize and rendering attempt after the next window resize
-		// (this may happen on Win32-based and Xlib-based systems, for instance;
-		// in reality, it never happened on my KDE 5.80.0 (Kubuntu 21.04) and KDE 5.44.0 (Kubuntu 18.04.5)
-		// because window minimalizing just unmaps the window)
-		if(_surfaceExtent.width == 0 || _surfaceExtent.height == 0)
-			return;  // new frame will be scheduled on the next window resize
-
-		// recreate swapchain
+		// resize callback
+		// (it usually recreates the swapchain)
 		_resizePending = false;
-		_resizeCallback(*this, surfaceCapabilities, _surfaceExtent);
+		_resizeCallback(*this, _surfaceWidth, _surfaceHeight);
+
+		// check for zero window size
+		if(_surfaceWidth == 0 || _surfaceHeight == 0) {
+			// zero size swapchain is not allowed, so we will not render the frame;
+			// instead, we will return and wait for the next resize, hopefully of not zero window size
+			_resizePending = true;
+			return;
+		}
+
 	}
 
 	// render scene

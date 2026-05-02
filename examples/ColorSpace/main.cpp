@@ -32,7 +32,7 @@ public:
 	~App();
 
 	void init();
-	void resize(VulkanWindow& window, const vk::SurfaceCapabilitiesKHR& surfaceCapabilities, vk::Extent2D newSurfaceExtent);
+	void resize(VulkanWindow&, uint32_t& widthToBeSet, uint32_t& heightToBeSet);
 	void frame(VulkanWindow& window);
 
 	// Vulkan instance must be destructed as the last Vulkan handle.
@@ -347,7 +347,7 @@ void App::init()
 
 	// create surface
 	vk::SurfaceKHR surface =
-		window.create(instance, {768, 768}, appName);
+		window.create(instance, 768, 768, appName);
 
 	// get devices:
 	// - compatibleDevices - devices that can present in the created window
@@ -482,6 +482,9 @@ void App::init()
 	presentationQueueFamily = get<2>(*bestDevice);
 	surfaceFormat = bestSurfaceFormat;
 
+	// update window title
+	window.setTitle(string(appName) + " - " + vk::to_string(surfaceFormat.colorSpace));
+
 	// create device
 	device =
 		physicalDevice.createDevice(
@@ -512,10 +515,6 @@ void App::init()
 	// get queues
 	graphicsQueue = device.getQueue(graphicsQueueFamily, 0);
 	presentationQueue = device.getQueue(presentationQueueFamily, 0);
-
-	// provide window with Vulkan device and updated title
-	window.setDevice(device, physicalDevice);
-	window.setTitle(string(appName) + " - " + vk::to_string(surfaceFormat.colorSpace));
 
 	// render pass
 	renderPass =
@@ -635,11 +634,46 @@ void App::init()
 }
 
 
-/** Recreate swapchain and pipeline callback method.
- *  The method is usually called after the window resize and on the application start. */
-void App::resize(VulkanWindow&, const vk::SurfaceCapabilitiesKHR& surfaceCapabilities,
-                 vk::Extent2D newSurfaceExtent)
+/** Recreate swapchain and pipeline callback.
+ *  The function is usually called after the window resize and on the application start. */
+void App::resize(VulkanWindow&, uint32_t& widthToBeSet, uint32_t& heightToBeSet)
 {
+	// make sure that we finished all the rendering
+	// (this is necessary for swapchain re-creation)
+	device.waitIdle();
+
+	// get surface capabilities
+	// On Win32 and Xlib, currentExtent, minImageExtent and maxImageExtent of returned surfaceCapabilites are all equal.
+	// It means that we can create a new swapchain only with imageExtent being equal to the window size.
+	// The currentExtent might become 0,0 on Win32 and Xlib platform, for example, when the window is minimized.
+	// If the currentExtent is not 0,0, both width and height must be greater than 0.
+	// On Wayland, currentExtent might be 0xffffffff, 0xffffffff with the meaning that the window extent
+	// will be determined by the extent of the swapchain.
+	// Wayland's minImageExtent is 1,1 and maxImageExtent is the maximum supported surface size.
+	vk::SurfaceCapabilitiesKHR surfaceCapabilities =
+		physicalDevice.getSurfaceCapabilitiesKHR(window.surface());
+
+	// zero size swapchain is not allowed,
+	// so we will ignore current resize and rendering attempt and wait for the next window resize
+	// (zero size may happen, for example, on Win32 when shrinking window too much)
+	if(surfaceCapabilities.currentExtent.width == 0 || surfaceCapabilities.currentExtent.height == 0) {
+		widthToBeSet = surfaceCapabilities.currentExtent.width;
+		heightToBeSet = surfaceCapabilities.currentExtent.height;
+		return;  // new frame will be scheduled on the next window resize
+	}
+
+	// if currentExtent is unknown (f.ex. Wayland might return 0xffffffff before first window show)
+	// use the size returned by window
+	vk::Extent2D newSurfaceExtent;
+	if(surfaceCapabilities.currentExtent.width == 0xffffffff || surfaceCapabilities.currentExtent.height == 0xffffffff)
+		newSurfaceExtent = vk::Extent2D{ window.surfaceWidth(), window.surfaceHeight() };
+	else
+		newSurfaceExtent = surfaceCapabilities.currentExtent;
+
+	// update VulkanWindow surface size
+	widthToBeSet = newSurfaceExtent.width;
+	heightToBeSet = newSurfaceExtent.height;
+
 	// clear resources
 	for(auto v : swapchainImageViews)  device.destroy(v);
 	swapchainImageViews.clear();
@@ -909,7 +943,7 @@ void App::frame(VulkanWindow&)
 		vk::RenderPassBeginInfo(
 			renderPass,  // renderPass
 			framebuffers[imageIndex],  // framebuffer
-			vk::Rect2D(vk::Offset2D(0, 0), window.surfaceExtent()),  // renderArea
+			vk::Rect2D(vk::Offset2D(0, 0), vk::Extent2D(window.surfaceWidth(), window.surfaceHeight())),  // renderArea
 			1,  // clearValueCount
 			&(const vk::ClearValue&)vk::ClearValue(  // pClearValues
 				vk::ClearColorValue(array<float, 4>{0.0f, 0.0f, 0.0f, 1.f})

@@ -4,16 +4,42 @@
 
 #pragma once
 
-#include <vulkan/vulkan.h>
 #include <array>
 #include <bitset>
 #include <cstdint>
 #include <exception>
 #include <functional>
 #include <string>
+#include <string_view>
 
-// we need vkGetInstanceProcAddr even if VK_NO_PROTOTYPES is defined (Qt defining it in some headers)
-extern "C" VKAPI_ATTR PFN_vkVoidFunction VKAPI_CALL vkGetInstanceProcAddr(VkInstance instance, const char* pName);
+// Vulkan C99 API
+// (the minimal part required by VulkanWindow.h)
+#ifndef VK_USE_64_BIT_PTR_DEFINES
+	#if defined(__LP64__) || defined(_WIN64) || (defined(__x86_64__) && !defined(__ILP32__) ) || defined(_M_X64) || defined(__ia64) || defined (_M_IA64) || defined(__aarch64__) || defined(__powerpc64__) || (defined(__riscv) && __riscv_xlen == 64)
+		#define VK_USE_64_BIT_PTR_DEFINES 1
+	#else
+		#define VK_USE_64_BIT_PTR_DEFINES 0
+	#endif
+#endif
+typedef struct VkInstance_T* VkInstance;
+#if (VK_USE_64_BIT_PTR_DEFINES==1)
+	typedef struct VkSurfaceKHR_T* VkSurfaceKHR;
+#else
+	typedef uint64_t VkSurfaceKHR;
+#endif
+#if defined(_WIN32)
+typedef void (__stdcall *PFN_vkVoidFunction)(void);
+typedef PFN_vkVoidFunction (__stdcall *PFN_vkGetInstanceProcAddr)(VkInstance instance, const char* pName);
+extern "C" PFN_vkVoidFunction __stdcall vkGetInstanceProcAddr(VkInstance instance, const char* pName);
+#elif defined(__ANDROID__) && defined(__ARM_ARCH) && __ARM_ARCH >= 7 && defined(__ARM_32BIT_STATE)
+typedef void (__attribute__((pcs("aapcs-vfp"))) *PFN_vkVoidFunction)(void);
+typedef PFN_vkVoidFunction (__attribute__((pcs("aapcs-vfp"))) *PFN_vkGetInstanceProcAddr)(VkInstance instance, const char* pName);
+extern "C" __attribute__((pcs("aapcs-vfp"))) PFN_vkVoidFunction vkGetInstanceProcAddr(void* vkInstance, const char* pName);
+#else
+typedef void (*PFN_vkVoidFunction)(void);
+typedef PFN_vkVoidFunction (*PFN_vkGetInstanceProcAddr)(VkInstance instance, const char* pName);
+extern "C" PFN_vkVoidFunction vkGetInstanceProcAddr(void* vkInstance, const char* pName);
+#endif
 
 
 
@@ -22,8 +48,7 @@ public:
 
 	// general function prototypes
 	typedef void FrameCallback(VulkanWindow& window);
-	typedef void ResizeCallback(VulkanWindow& window,
-		const VkSurfaceCapabilitiesKHR& surfaceCapabilities, VkExtent2D newSurfaceExtent);
+	typedef void ResizeCallback(VulkanWindow& window, uint32_t& widthToBeSet, uint32_t& heightToBeSet);
 	typedef void CloseCallback(VulkanWindow& window);
 
 	// window state
@@ -186,14 +211,11 @@ protected:
 
 	std::function<FrameCallback> _frameCallback;
 	VkInstance _instance = nullptr;
-	VkPhysicalDevice _physicalDevice = nullptr;
-	VkDevice _device = nullptr;
 	VkSurfaceKHR _surface = nullptr;
-	PFN_vkGetInstanceProcAddr _vulkanGetInstanceProcAddr = nullptr;
-	PFN_vkDeviceWaitIdle _vulkanDeviceWaitIdle;
-	PFN_vkGetPhysicalDeviceSurfaceCapabilitiesKHR _vulkanGetPhysicalDeviceSurfaceCapabilitiesKHR;
+	PFN_vkGetInstanceProcAddr _vkGetInstanceProcAddr = nullptr;
 
-	VkExtent2D _surfaceExtent = {0,0};
+	uint32_t _surfaceWidth = 0;
+	uint32_t _surfaceHeight = 0;
 	bool _resizePending = true;
 	std::function<ResizeCallback> _resizeCallback;
 	std::function<CloseCallback> _closeCallback;
@@ -206,8 +228,7 @@ protected:
 
 	std::string _title;
 
-	VkSurfaceKHR createInternal(VkInstance instance, VkExtent2D surfaceExtent,
-	                            PFN_vkGetInstanceProcAddr getInstanceProcAddr);
+	VkSurfaceKHR createInternal(VkInstance instance, uint32_t width, uint32_t height);
 	void updateTitle();
 	void show(void (*xdgConfigFunc)(VulkanWindow&), void (*libdecorConfigFunc)(VulkanWindow&));  // wayland-only function
 	void updateMinimized();  // xlib-only function
@@ -232,9 +253,9 @@ public:
 	VulkanWindow& operator=(const VulkanWindow&) = delete;
 
 	// general functions
-	VkSurfaceKHR create(VkInstance instance, VkExtent2D surfaceExtent, const std::string& title = "Vulkan window",
+	VkSurfaceKHR create(VkInstance instance, uint32_t width, uint32_t height,
+	                    std::string_view title = "Vulkan window",
 	                    PFN_vkGetInstanceProcAddr getInstanceProcAddr = ::vkGetInstanceProcAddr);
-	void setDevice(VkDevice device, VkPhysicalDevice physicalDevice);
 	void show();
 	void hide();
 	void setVisible(bool value);
@@ -267,14 +288,15 @@ public:
 
 	// getters
 	VkSurfaceKHR surface() const;
-	VkExtent2D surfaceExtent() const;
+	uint32_t surfaceWidth() const;
+	uint32_t surfaceHeight() const;
 	bool isVisible() const;
 	const std::string& title() const;
 	WindowState windowState() const;
 
 	// setters
 	void setTitle(std::string&& s);
-	void setTitle(const std::string& s);
+	void setTitle(std::string_view s);
 	void setWindowState(WindowState windowState);
 
 	// convenience functions calling setWindowState()
@@ -326,10 +348,11 @@ inline const std::function<VulkanWindow::MouseButtonCallback>& VulkanWindow::mou
 inline const std::function<VulkanWindow::MouseWheelCallback>& VulkanWindow::mouseWheelCallback() const  { return _mouseWheelCallback; }
 inline const std::function<VulkanWindow::KeyCallback>& VulkanWindow::keyCallback() const  { return _keyCallback; }
 inline VkSurfaceKHR VulkanWindow::surface() const  { return _surface; }
-inline VkExtent2D VulkanWindow::surfaceExtent() const  { return _surfaceExtent; }
+inline uint32_t VulkanWindow::surfaceWidth() const  { return _surfaceWidth; }
+inline uint32_t VulkanWindow::surfaceHeight() const  { return _surfaceHeight; }
 inline const std::string& VulkanWindow::title() const  { return _title; }
 inline void VulkanWindow::setTitle(std::string&& s)  { if(s==_title) return; _title=std::move(s); updateTitle(); }
-inline void VulkanWindow::setTitle(const std::string& s)  { if(s==_title) return; _title=s; updateTitle(); }
+inline void VulkanWindow::setTitle(std::string_view s)  { if(s==_title) return; _title=s; updateTitle(); }
 inline void VulkanWindow::showFullScreen()  { setWindowState(WindowState::FullScreen); }
 inline void VulkanWindow::showMaximized()  { setWindowState(WindowState::Maximized); }
 inline void VulkanWindow::showNormal()  { setWindowState(WindowState::Normal); }

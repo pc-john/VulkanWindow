@@ -27,22 +27,21 @@ static const uint32_t fsSpirv[] = {
 // Window class
 class Window : public VulkanWindow {
 public:
-	vk::SurfaceKHR surface;
 	vk::SwapchainKHR swapchain;
 	vector<vk::ImageView> swapchainImageViews;
 	vector<vk::Framebuffer> framebuffers;
 	vector<vk::Semaphore> renderingFinishedSemaphores;
 	vk::Pipeline pipeline;
+	vk::Device device;
 
-	Window(vk::Instance instance, vk::Extent2D surfaceExtent, const char* title = "Vulkan window")
-		: VulkanWindow()
-		, surface(VulkanWindow::create(instance, surfaceExtent, title))
+	Window(vk::Instance instance, uint32_t width, uint32_t height, const char* title = "Vulkan window")
+		: VulkanWindow()  // this makes destructor run if the current constructor throws
 	{
+		VulkanWindow::create(instance, width, height, title);
 	}
 	Window(Window&& other) noexcept
 		: VulkanWindow(move(other))
 	{
-		surface = other.surface;
 		swapchain = other.swapchain;
 		other.swapchain = nullptr;
 		swapchainImageViews = move(other.swapchainImageViews);
@@ -50,13 +49,13 @@ public:
 		renderingFinishedSemaphores = move(other.renderingFinishedSemaphores);
 		pipeline = other.pipeline;
 		other.pipeline = nullptr;
+		device = other.device;
 	}
 	~Window()  { destroyMembers(); }
 	Window& operator=(Window&& rhs) noexcept
 	{
 		destroyMembers();
 		VulkanWindow::operator=(move(rhs));
-		surface = rhs.surface;
 		swapchain = rhs.swapchain;
 		rhs.swapchain = nullptr;
 		swapchainImageViews = move(rhs.swapchainImageViews);
@@ -64,6 +63,7 @@ public:
 		renderingFinishedSemaphores = move(rhs.renderingFinishedSemaphores);
 		pipeline = rhs.pipeline;
 		rhs.pipeline = nullptr;
+		device = rhs.device;
 		return *this;
 	}
 protected:
@@ -73,17 +73,16 @@ protected:
 
 void Window::destroyMembers() noexcept
 {
-	if(!_device)
+	if(!device)
 		return;
 
 	// wait for device idle state
-	// (to prevent errors during destruction of Vulkan resources);
-	// we ignore any returned error codes here
-	// because the device might be in the lost state already, etc.
-	vkDeviceWaitIdle(_device);
+	// (to prevent errors during destruction of Vulkan resources
+	// we ignore any returned error codes here by calling Vulkan function directly;
+	// the device might be in the lost state already, etc.)
+	vkDeviceWaitIdle(device);
 
 	// destroy resources
-	vk::Device device = vk::Device(_device);
 	device.destroy(pipeline);
 	pipeline = nullptr;
 	for(auto s : renderingFinishedSemaphores)  device.destroy(s);
@@ -105,8 +104,7 @@ public:
 	~App();
 
 	void init();
-	void resize(VulkanWindow& window,
-		const vk::SurfaceCapabilitiesKHR& surfaceCapabilities, vk::Extent2D newSurfaceExtent);
+	void resize(VulkanWindow& window, uint32_t& widthToBeSet, uint32_t& heightToBeSet);
 	void frame(VulkanWindow& window);
 
 	// Vulkan instance must be destructed as the last Vulkan handle.
@@ -231,15 +229,15 @@ void App::init()
 		);
 
 	// create surface
-	windowList.emplace_back(instance, vk::Extent2D{800, 600}, appName);
-	windowList.emplace_back(instance, vk::Extent2D{800, 600}, appName);
+	windowList.emplace_back(instance, 800, 600, appName);
+	windowList.emplace_back(instance, 800, 600, appName);
 
 	// test for isVisible() returning false
 	{
 		VulkanWindow tmp;
 		if(tmp.isVisible())
 			throw runtime_error("VulkanWindow::isVisible() did not return false immediately after VulkanWindow constructor.");
-		tmp.create(instance, vk::Extent2D{800, 600}, appName);
+		tmp.create(instance, 800, 600, appName);
 		if(tmp.isVisible())
 			throw runtime_error("VulkanWindow::isVisible() did not return false immediately after VulkanWindow::create().");
 		tmp.hide();
@@ -279,7 +277,7 @@ void App::init()
 			// test for presentation support
 			bool presentationSupport = true;
 			for(auto& w : windowList)
-				if(!pd.getSurfaceSupportKHR(i, w.surface)) {
+				if(!pd.getSurfaceSupportKHR(i, w.surface())) {
 					presentationSupport = false;
 					break;
 				}
@@ -382,7 +380,7 @@ void App::init()
 
 	// print surface formats
 	cout << "Surface formats:" << endl;
-	vector<vk::SurfaceFormatKHR> availableSurfaceFormats = physicalDevice.getSurfaceFormatsKHR(windowList.front().surface);
+	vector<vk::SurfaceFormatKHR> availableSurfaceFormats = physicalDevice.getSurfaceFormatsKHR(windowList.front().surface());
 	for(vk::SurfaceFormatKHR sf : availableSurfaceFormats)
 		cout << "   " << vk::to_string(sf.format) << ", color space: " << vk::to_string(sf.colorSpace) << endl;
 
@@ -411,7 +409,7 @@ void App::init()
 	surfaceFormatFound:;
 	}
 	for(auto it=++windowList.begin(); it!=windowList.end(); it++) {
-		availableSurfaceFormats = physicalDevice.getSurfaceFormatsKHR(it->surface);
+		availableSurfaceFormats = physicalDevice.getSurfaceFormatsKHR(it->surface());
 		if(std::find(availableSurfaceFormats.begin(), availableSurfaceFormats.end(), surfaceFormat) == availableSurfaceFormats.end())
 			throw std::runtime_error("Vulkan error: Surface format chosen for the first window is not available in the second window.");
 	}
@@ -536,11 +534,47 @@ void App::init()
 }
 
 
-/** Recreate swapchain and pipeline callback method.
- *  The method is usually called after the window resize and on the application start. */
-void App::resize(VulkanWindow& w, const vk::SurfaceCapabilitiesKHR& surfaceCapabilities, vk::Extent2D newSurfaceExtent)
+/** Recreate swapchain and pipeline callback.
+ *  The function is usually called after the window resize and on the application start. */
+void App::resize(VulkanWindow& w, uint32_t& widthToBeSet, uint32_t& heightToBeSet)
 {
 	Window& window = static_cast<Window&>(w);
+
+	// make sure that we finished all the rendering
+	// (this is necessary for swapchain re-creation)
+	device.waitIdle();
+
+	// get surface capabilities
+	// On Win32 and Xlib, currentExtent, minImageExtent and maxImageExtent of returned surfaceCapabilites are all equal.
+	// It means that we can create a new swapchain only with imageExtent being equal to the window size.
+	// The currentExtent might become 0,0 on Win32 and Xlib platform, for example, when the window is minimized.
+	// If the currentExtent is not 0,0, both width and height must be greater than 0.
+	// On Wayland, currentExtent might be 0xffffffff, 0xffffffff with the meaning that the window extent
+	// will be determined by the extent of the swapchain.
+	// Wayland's minImageExtent is 1,1 and maxImageExtent is the maximum supported surface size.
+	vk::SurfaceCapabilitiesKHR surfaceCapabilities =
+		physicalDevice.getSurfaceCapabilitiesKHR(window.surface());
+
+	// zero size swapchain is not allowed,
+	// so we will ignore current resize and rendering attempt and wait for the next window resize
+	// (zero size may happen, for example, on Win32 when shrinking window too much)
+	if(surfaceCapabilities.currentExtent.width == 0 || surfaceCapabilities.currentExtent.height == 0) {
+		widthToBeSet = surfaceCapabilities.currentExtent.width;
+		heightToBeSet = surfaceCapabilities.currentExtent.height;
+		return;  // new frame will be scheduled on the next window resize
+	}
+
+	// if currentExtent is unknown (f.ex. Wayland might return 0xffffffff before first window show)
+	// use the size returned by window
+	vk::Extent2D newSurfaceExtent;
+	if(surfaceCapabilities.currentExtent.width == 0xffffffff || surfaceCapabilities.currentExtent.height == 0xffffffff)
+		newSurfaceExtent = vk::Extent2D{ window.surfaceWidth(), window.surfaceHeight() };
+	else
+		newSurfaceExtent = surfaceCapabilities.currentExtent;
+
+	// update VulkanWindow surface size
+	widthToBeSet = newSurfaceExtent.width;
+	heightToBeSet = newSurfaceExtent.height;
 
 	// clear resources
 	for(auto v : window.swapchainImageViews)  device.destroy(v);
@@ -562,7 +596,7 @@ void App::resize(VulkanWindow& w, const vk::SurfaceCapabilitiesKHR& surfaceCapab
 		device.createSwapchainKHRUnique(
 			vk::SwapchainCreateInfoKHR(
 				vk::SwapchainCreateFlagsKHR(),  // flags
-				window.surface,                 // surface
+				window.surface(),               // surface
 				surfaceCapabilities.maxImageCount==0  // minImageCount
 					? max(requestedImageCount, surfaceCapabilities.minImageCount)
 					: clamp(requestedImageCount, surfaceCapabilities.minImageCount, surfaceCapabilities.maxImageCount),
@@ -844,7 +878,7 @@ void App::frame(VulkanWindow& w)
 		vk::RenderPassBeginInfo(
 			renderPass,  // renderPass
 			window.framebuffers[imageIndex],  // framebuffer
-			vk::Rect2D(vk::Offset2D(0, 0), window.surfaceExtent()),  // renderArea
+			vk::Rect2D(vk::Offset2D(0, 0), vk::Extent2D(window.surfaceWidth(), window.surfaceHeight())),  // renderArea
 			1,  // clearValueCount
 			&(const vk::ClearValue&)vk::ClearValue(  // pClearValues
 				vk::ClearColorValue(array<float, 4>{0.0f, 0.0f, 0.0f, 1.f})
@@ -917,7 +951,7 @@ int main(int argc, char* argv[])
 		App app(argc, argv);
 		app.init();
 		for(Window& w : app.windowList) {
-			w.setDevice(app.device, app.physicalDevice);
+			w.device = app.device;
 			w.setResizeCallback(
 				bind(
 					&App::resize,
