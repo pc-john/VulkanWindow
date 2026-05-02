@@ -66,6 +66,58 @@
 #define VULKAN_WINDOW_DEBUG
 #endif
 
+
+// Vulkan C99 API
+// (the minimal part required by VulkanWindow.cpp)
+#if defined(_WIN32)
+	#define VKAPI_ATTR
+	#define VKAPI_CALL __stdcall
+	#define VKAPI_PTR  VKAPI_CALL
+#elif defined(__ANDROID__) && defined(__ARM_ARCH) && __ARM_ARCH >= 7 && defined(__ARM_32BIT_STATE)
+	#define VKAPI_ATTR __attribute__((pcs("aapcs-vfp")))
+	#define VKAPI_CALL
+	#define VKAPI_PTR  VKAPI_ATTR
+#else
+	#define VKAPI_ATTR
+	#define VKAPI_CALL
+	#define VKAPI_PTR
+#endif
+using VkStructureType = uint32_t;
+using VkResult = uint32_t;
+constexpr const VkResult VK_SUCCESS = 0;
+#if defined(USE_PLATFORM_WIN32)
+struct VkWin32SurfaceCreateInfoKHR {
+	VkStructureType   sType;
+	const void*       pNext;
+	uint32_t          flags;
+	HINSTANCE         hinstance;
+	HWND              hwnd;
+};
+constexpr const VkStructureType VK_STRUCTURE_TYPE_WIN32_SURFACE_CREATE_INFO_KHR = 1000009000;
+typedef VkResult (VKAPI_PTR *PFN_vkCreateWin32SurfaceKHR)(VkInstance instance, const VkWin32SurfaceCreateInfoKHR* pCreateInfo, const void* pAllocator, VkSurfaceKHR* pSurface);
+#elif defined(USE_PLATFORM_XLIB)
+struct VkXlibSurfaceCreateInfoKHR {
+	VkStructureType   sType;
+	const void*       pNext;
+	uint32_t          flags;
+	Display*          dpy;
+	Window            window;
+};
+constexpr const VkStructureType VK_STRUCTURE_TYPE_XLIB_SURFACE_CREATE_INFO_KHR = 1000004000;
+typedef VkResult (VKAPI_PTR *PFN_vkCreateXlibSurfaceKHR)(VkInstance instance, const VkXlibSurfaceCreateInfoKHR* pCreateInfo, const void* pAllocator, VkSurfaceKHR* pSurface);
+#elif defined(USE_PLATFORM_WAYLAND)
+struct VkWaylandSurfaceCreateInfoKHR {
+	VkStructureType      sType;
+	const void*          pNext;
+	uint32_t             flags;
+	struct wl_display*   display;
+	struct wl_surface*   surface;
+};
+constexpr const VkStructureType VK_STRUCTURE_TYPE_WAYLAND_SURFACE_CREATE_INFO_KHR = 1000006000;
+typedef VkResult (VKAPI_PTR *PFN_vkCreateWaylandSurfaceKHR)(VkInstance instance, const VkWaylandSurfaceCreateInfoKHR* pCreateInfo, const void* pAllocator, VkSurfaceKHR* pSurface);
+#endif
+typedef void (VKAPI_PTR *PFN_vkDestroySurfaceKHR)(VkInstance instance, VkSurfaceKHR surface, const void* pAllocator);
+
 // xcbcommon types and funcs
 // (we avoid dependency on include xkbcommon/xkbcommon.h to lessen VulkanWindow dependencies)
 #if defined(USE_PLATFORM_XLIB)
@@ -1362,9 +1414,6 @@ void VulkanWindow::destroy() noexcept
 #if !defined(USE_PLATFORM_QT)
 	if(_instance && _surface)
 	{
-		// vkDestroySurfaceKHR function type (to avoid dependency on Vulkan headers)
-		typedef void (__stdcall *PFN_vkDestroySurfaceKHR)(VkInstance instance, VkSurfaceKHR surface, const void* pAllocator);
-
 		// get function pointer
 		// (we do not store the pointer because it is used only once in life-time of the VulkanWindow)
 		PFN_vkDestroySurfaceKHR vkDestroySurfaceKHR =
@@ -1869,19 +1918,6 @@ VkSurfaceKHR VulkanWindow::createInternal(VkInstance instance, uint32_t width, u
 	// store this pointer with the window data
 	SetWindowLongPtr(HWND(_win32.hwnd), 0, LONG_PTR(this));
 
-	// Vulkan type definitions
-	using VkResult = uint32_t;
-	using VkStructureType = uint32_t;
-	struct VkWin32SurfaceCreateInfoKHR {
-		VkStructureType  sType;
-		const void*      pNext;
-		uint32_t         flags;
-		HINSTANCE        hinstance;
-		HWND             hwnd;
-	};
-	constexpr const VkStructureType VK_STRUCTURE_TYPE_WIN32_SURFACE_CREATE_INFO_KHR = 1000009000;
-	typedef VkResult (__stdcall *PFN_vkCreateWin32SurfaceKHR)(VkInstance instance, const VkWin32SurfaceCreateInfoKHR* pCreateInfo, const void* pAllocator, VkSurfaceKHR* pSurface);
-
 	// create surface
 	PFN_vkCreateWin32SurfaceKHR vkCreateWin32SurfaceKHR =
 		reinterpret_cast<PFN_vkCreateWin32SurfaceKHR>(_vkGetInstanceProcAddr(_instance, "vkCreateWin32SurfaceKHR"));
@@ -1900,7 +1936,7 @@ VkSurfaceKHR VulkanWindow::createInternal(VkInstance instance, uint32_t width, u
 			nullptr,  // pAllocator
 			reinterpret_cast<VkSurfaceKHR*>(&_surface)  // pSurface
 		);
-	if(r != 0)  // compare to VK_SUCCESS
+	if(r != VK_SUCCESS)
 		throw runtime_error(string("VulkanWindow: vkCreateWin32SurfaceKHR() failed (return code: ") + to_string(r) + ").");
 
 	return _surface;
@@ -1923,7 +1959,7 @@ VkSurfaceKHR VulkanWindow::createInternal(VkInstance instance, uint32_t width, u
 			xlib::display,  // display
 			DefaultRootWindow(xlib::display),  // parent
 			0, 0,  // x,y
-			surfaceExtent.width, surfaceExtent.height,  // width, height
+			unsigned(_surfaceWidth), unsigned(_surfaceHeight),  // width, height
 			0,  // border_width
 			CopyFromParent,  // depth
 			InputOutput,  // class
@@ -1948,7 +1984,7 @@ VkSurfaceKHR VulkanWindow::createInternal(VkInstance instance, uint32_t width, u
 
 	// create surface
 	PFN_vkCreateXlibSurfaceKHR vulkanCreateXlibSurfaceKHR =
-		reinterpret_cast<PFN_vkCreateXlibSurfaceKHR>(getInstanceProcAddr(_instance, "vkCreateXlibSurfaceKHR"));
+		reinterpret_cast<PFN_vkCreateXlibSurfaceKHR>(vkGetInstanceProcAddr(_instance, "vkCreateXlibSurfaceKHR"));
 	if(vulkanCreateXlibSurfaceKHR == nullptr)
 		throw runtime_error("VulkanWindow: Failed to get vkCreateXlibSurfaceKHR function pointer.");
 	VkResult r =
@@ -1992,12 +2028,12 @@ VkSurfaceKHR VulkanWindow::createInternal(VkInstance instance, uint32_t width, u
 	wl_surface_set_user_data(_wayland.wlSurface, this);
 
 	// create surface
-	PFN_vkCreateWaylandSurfaceKHR vulkanCreateWaylandSurfaceKHR =
-		reinterpret_cast<PFN_vkCreateWaylandSurfaceKHR>(getInstanceProcAddr(_instance, "vkCreateWaylandSurfaceKHR"));
-	if(vulkanCreateWaylandSurfaceKHR == nullptr)
+	PFN_vkCreateWaylandSurfaceKHR vkCreateWaylandSurfaceKHR =
+		reinterpret_cast<PFN_vkCreateWaylandSurfaceKHR>(vkGetInstanceProcAddr(_instance, "vkCreateWaylandSurfaceKHR"));
+	if(vkCreateWaylandSurfaceKHR == nullptr)
 		throw runtime_error("VulkanWindow: Failed to get vkCreateWaylandSurfaceKHR function pointer.");
 	VkResult r =
-		vulkanCreateWaylandSurfaceKHR(
+		vkCreateWaylandSurfaceKHR(
 			instance,  // instance
 			&(const VkWaylandSurfaceCreateInfoKHR&)VkWaylandSurfaceCreateInfoKHR{  // pCreateInfo
 				VK_STRUCTURE_TYPE_WAYLAND_SURFACE_CREATE_INFO_KHR,  // sType
@@ -2955,7 +2991,7 @@ void VulkanWindow::mainLoop()
 
 		// configure event
 		if(e.type == ConfigureNotify) {
-			if(e.xconfigure.width != int(w->_surfaceExtent.width) || e.xconfigure.height != int(w->_surfaceExtent.height)) {
+			if(e.xconfigure.width != int(w->_surfaceWidth) || e.xconfigure.height != int(w->_surfaceHeight)) {
 			#ifdef VULKAN_WINDOW_DEBUG
 				cout << "Configure event " << e.xconfigure.width << "x" << e.xconfigure.height << endl;
 			#endif
@@ -3285,14 +3321,14 @@ void VulkanWindowPrivate::xdgToplevelListenerConfigure(void* data, xdg_toplevel*
 	// if width or height of the window changed,
 	// schedule swapchain resize and force new frame rendering
 	// (width and height of zero means that the compositor does not know the window dimension)
-	if(uint32_t(width) != w->_surfaceExtent.width && width != 0) {
-		w->_surfaceExtent.width = width;
-		if(uint32_t(height) != w->_surfaceExtent.height && height != 0)
-			w->_surfaceExtent.height = height;
+	if(uint32_t(width) != w->_surfaceWidth && width != 0) {
+		w->_surfaceWidth = width;
+		if(uint32_t(height) != w->_surfaceHeight && height != 0)
+			w->_surfaceHeight = height;
 		w->scheduleResize();
 	}
-	else if(uint32_t(height) != w->_surfaceExtent.height && height != 0) {
-		w->_surfaceExtent.height = height;
+	else if(uint32_t(height) != w->_surfaceHeight && height != 0) {
+		w->_surfaceHeight = height;
 		w->scheduleResize();
 	}
 }
@@ -3339,14 +3375,14 @@ void VulkanWindowPrivate::libdecorFrameConfigure(libdecor_frame* frame, libdecor
 	int width, height;
 	if(wayland::funcs.libdecor_configuration_get_content_size(config, frame, &width, &height))
 	{
-		if(uint32_t(width) != w->_surfaceExtent.width && width != 0) {
-			w->_surfaceExtent.width = width;
-			if(uint32_t(height) != w->_surfaceExtent.height && height != 0)
-				w->_surfaceExtent.height = height;
+		if(uint32_t(width) != w->_surfaceWidth && width != 0) {
+			w->_surfaceWidth = width;
+			if(uint32_t(height) != w->_surfaceHeight && height != 0)
+				w->_surfaceHeight = height;
 			w->scheduleResize();
 		}
-		else if(uint32_t(height) != w->_surfaceExtent.height && height != 0) {
-			w->_surfaceExtent.height = height;
+		else if(uint32_t(height) != w->_surfaceHeight && height != 0) {
+			w->_surfaceHeight = height;
 			w->scheduleResize();
 		}
 	}
@@ -3356,7 +3392,7 @@ void VulkanWindowPrivate::libdecorFrameConfigure(libdecor_frame* frame, libdecor
 #endif
 
 	// set new window state
-	libdecor_state* state = wayland::funcs.libdecor_state_new(w->_surfaceExtent.width, w->_surfaceExtent.height);
+	libdecor_state* state = wayland::funcs.libdecor_state_new(int(w->_surfaceWidth), int(w->_surfaceHeight));
 	wayland::funcs.libdecor_frame_commit(frame, state, config);
 	wayland::funcs.libdecor_state_free(state);
 

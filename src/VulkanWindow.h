@@ -34,11 +34,11 @@ extern "C" PFN_vkVoidFunction __stdcall vkGetInstanceProcAddr(VkInstance instanc
 #elif defined(__ANDROID__) && defined(__ARM_ARCH) && __ARM_ARCH >= 7 && defined(__ARM_32BIT_STATE)
 typedef void (__attribute__((pcs("aapcs-vfp"))) *PFN_vkVoidFunction)(void);
 typedef PFN_vkVoidFunction (__attribute__((pcs("aapcs-vfp"))) *PFN_vkGetInstanceProcAddr)(VkInstance instance, const char* pName);
-extern "C" __attribute__((pcs("aapcs-vfp"))) PFN_vkVoidFunction vkGetInstanceProcAddr(void* vkInstance, const char* pName);
+extern "C" __attribute__((pcs("aapcs-vfp"))) PFN_vkVoidFunction vkGetInstanceProcAddr(VkInstance instance, const char* pName);
 #else
 typedef void (*PFN_vkVoidFunction)(void);
 typedef PFN_vkVoidFunction (*PFN_vkGetInstanceProcAddr)(VkInstance instance, const char* pName);
-extern "C" PFN_vkVoidFunction vkGetInstanceProcAddr(void* vkInstance, const char* pName);
+extern "C" PFN_vkVoidFunction vkGetInstanceProcAddr(VkInstance instance, const char* pName);
 #endif
 
 
