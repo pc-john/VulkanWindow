@@ -1622,34 +1622,43 @@ VulkanWindow::VulkanWindow(VulkanWindow&& other) noexcept
 
 #elif defined(USE_PLATFORM_WAYLAND)
 
-	// process all pending sync events
-	// because they are delivered to the current object address
-	waitAllSyncEvents(_wayland.numSyncEventsOnTheFly);
+	if(other._wayland.wlSurface == nullptr)
+	{
+		// move uninitialized window
+		// (create() was not called on the window yet)
+		_wayland.wlSurface = nullptr;
+	}
+	else
+	{
+		// process all pending sync events
+		// because they are delivered to the current object address
+		waitAllSyncEvents(other._wayland.numSyncEventsOnTheFly);
 
-	// move Wayland members
-	_wayland = other._wayland;
-	if(_wayland.wlSurface)
-		wl_surface_set_user_data(_wayland.wlSurface, this);
-	if(_wayland.xdgSurface)
-		xdg_surface_set_user_data(_wayland.xdgSurface, this);
-	if(_wayland.xdgTopLevel)
-		xdg_toplevel_set_user_data(_wayland.xdgTopLevel, this);
-	if(_wayland.libdecorFrame)
-		wayland::funcs.libdecor_frame_set_user_data(_wayland.libdecorFrame, this);
-	if(_wayland.scheduledFrameCallback)
-		wl_callback_set_user_data(_wayland.scheduledFrameCallback, this);
-	other._wayland.wlSurface = nullptr;
-	other._wayland.xdgSurface = nullptr;
-	other._wayland.xdgTopLevel = nullptr;
-	other._wayland.decoration = nullptr;
-	other._wayland.libdecorFrame = nullptr;
-	other._wayland.scheduledFrameCallback = nullptr;
+		// move Wayland members
+		_wayland = other._wayland;
+		if(_wayland.wlSurface)
+			wl_surface_set_user_data(_wayland.wlSurface, this);
+		if(_wayland.xdgSurface)
+			xdg_surface_set_user_data(_wayland.xdgSurface, this);
+		if(_wayland.xdgTopLevel)
+			xdg_toplevel_set_user_data(_wayland.xdgTopLevel, this);
+		if(_wayland.libdecorFrame)
+			wayland::funcs.libdecor_frame_set_user_data(_wayland.libdecorFrame, this);
+		if(_wayland.scheduledFrameCallback)
+			wl_callback_set_user_data(_wayland.scheduledFrameCallback, this);
+		other._wayland.wlSurface = nullptr;
+		other._wayland.xdgSurface = nullptr;
+		other._wayland.xdgTopLevel = nullptr;
+		other._wayland.decoration = nullptr;
+		other._wayland.libdecorFrame = nullptr;
+		other._wayland.scheduledFrameCallback = nullptr;
 
-	// update pointers to this object
-	if(wayland::windowUnderPointer == &other)
-		wayland::windowUnderPointer = static_cast<VulkanWindowPrivate*>(this);
-	if(wayland::windowWithKbFocus == &other)
-		wayland::windowWithKbFocus = static_cast<VulkanWindowPrivate*>(this);
+		// update pointers to this object
+		if(wayland::windowUnderPointer == &other)
+			wayland::windowUnderPointer = static_cast<VulkanWindowPrivate*>(this);
+		if(wayland::windowWithKbFocus == &other)
+			wayland::windowWithKbFocus = static_cast<VulkanWindowPrivate*>(this);
+	}
 
 #elif defined(USE_PLATFORM_SDL3)
 
@@ -1754,34 +1763,43 @@ VulkanWindow& VulkanWindow::operator=(VulkanWindow&& other) noexcept
 
 #elif defined(USE_PLATFORM_WAYLAND)
 
-	// process all pending sync events
-	// because they are delivered to the current object address
-	waitAllSyncEvents(_wayland.numSyncEventsOnTheFly);
+	if(other._wayland.wlSurface == nullptr)
+	{
+		// move uninitialized window
+		// (create() was not called on the window yet)
+		_wayland.wlSurface = nullptr;
+	}
+	else
+	{
+		// process all pending sync events
+		// because they are delivered to the current object address
+		waitAllSyncEvents(other._wayland.numSyncEventsOnTheFly);
 
-	// move Wayland members
-	_wayland = other._wayland;
-	if(_wayland.wlSurface)
-		wl_surface_set_user_data(_wayland.wlSurface, this);
-	if(_wayland.xdgSurface)
-		xdg_surface_set_user_data(_wayland.xdgSurface, this);
-	if(_wayland.xdgTopLevel)
-		xdg_toplevel_set_user_data(_wayland.xdgTopLevel, this);
-	if(_wayland.libdecorFrame)
-		wayland::funcs.libdecor_frame_set_user_data(_wayland.libdecorFrame, this);
-	if(_wayland.scheduledFrameCallback)
-		wl_callback_set_user_data(_wayland.scheduledFrameCallback, this);
-	other._wayland.wlSurface = nullptr;
-	other._wayland.xdgSurface = nullptr;
-	other._wayland.xdgTopLevel = nullptr;
-	other._wayland.decoration = nullptr;
-	other._wayland.libdecorFrame = nullptr;
-	other._wayland.scheduledFrameCallback = nullptr;
+		// move Wayland members
+		_wayland = other._wayland;
+		if(_wayland.wlSurface)
+			wl_surface_set_user_data(_wayland.wlSurface, this);
+		if(_wayland.xdgSurface)
+			xdg_surface_set_user_data(_wayland.xdgSurface, this);
+		if(_wayland.xdgTopLevel)
+			xdg_toplevel_set_user_data(_wayland.xdgTopLevel, this);
+		if(_wayland.libdecorFrame)
+			wayland::funcs.libdecor_frame_set_user_data(_wayland.libdecorFrame, this);
+		if(_wayland.scheduledFrameCallback)
+			wl_callback_set_user_data(_wayland.scheduledFrameCallback, this);
+		other._wayland.wlSurface = nullptr;
+		other._wayland.xdgSurface = nullptr;
+		other._wayland.xdgTopLevel = nullptr;
+		other._wayland.decoration = nullptr;
+		other._wayland.libdecorFrame = nullptr;
+		other._wayland.scheduledFrameCallback = nullptr;
 
-	// update pointers to this object
-	if(wayland::windowUnderPointer == &other)
-		wayland::windowUnderPointer = static_cast<VulkanWindowPrivate*>(this);
-	if(wayland::windowWithKbFocus == &other)
-		wayland::windowWithKbFocus = static_cast<VulkanWindowPrivate*>(this);
+		// update pointers to this object
+		if(wayland::windowUnderPointer == &other)
+			wayland::windowUnderPointer = static_cast<VulkanWindowPrivate*>(this);
+		if(wayland::windowWithKbFocus == &other)
+			wayland::windowWithKbFocus = static_cast<VulkanWindowPrivate*>(this);
+	}
 
 #elif defined(USE_PLATFORM_SDL3)
 
