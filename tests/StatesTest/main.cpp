@@ -331,18 +331,13 @@ void App::init()
 	for(Window& w : windowList)
 		w.device = device;
 
-	// print surface formats
-	cout << "Surface formats:" << endl;
-	vector<vk::SurfaceFormatKHR> availableSurfaceFormats = physicalDevice.getSurfaceFormatsKHR(windowList.front().surface());
-	for(vk::SurfaceFormatKHR sf : availableSurfaceFormats)
-		cout << "   " << vk::to_string(sf.format) << ", color space: " << vk::to_string(sf.colorSpace) << endl;
-
 	// choose surface format
 	constexpr const array allowedSurfaceFormats{
 		vk::SurfaceFormatKHR{ vk::Format::eB8G8R8A8Srgb, vk::ColorSpaceKHR::eSrgbNonlinear },
 		vk::SurfaceFormatKHR{ vk::Format::eR8G8B8A8Srgb, vk::ColorSpaceKHR::eSrgbNonlinear },
 		vk::SurfaceFormatKHR{ vk::Format::eA8B8G8R8SrgbPack32, vk::ColorSpaceKHR::eSrgbNonlinear },
 	};
+	vector<vk::SurfaceFormatKHR> availableSurfaceFormats = physicalDevice.getSurfaceFormatsKHR(windowList.front().surface());
 	if(availableSurfaceFormats.size()==1 && availableSurfaceFormats[0].format==vk::Format::eUndefined)
 		// Vulkan spec allowed single eUndefined value until 1.1.111 (2019-06-10)
 		// with the meaning you can use any valid vk::Format value.

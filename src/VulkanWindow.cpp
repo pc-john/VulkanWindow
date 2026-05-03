@@ -1631,7 +1631,7 @@ VulkanWindow::VulkanWindow(VulkanWindow&& other) noexcept
 	else
 	{
 		// process all pending sync events
-		// because they are delivered to the current object address
+		// because they are delivered to the original object address
 		waitAllSyncEvents(other._wayland.numSyncEventsOnTheFly);
 
 		// move Wayland members
@@ -1772,7 +1772,7 @@ VulkanWindow& VulkanWindow::operator=(VulkanWindow&& other) noexcept
 	else
 	{
 		// process all pending sync events
-		// because they are delivered to the current object address
+		// because they are delivered to the original object address
 		waitAllSyncEvents(other._wayland.numSyncEventsOnTheFly);
 
 		// move Wayland members
@@ -2032,12 +2032,13 @@ VkSurfaceKHR VulkanWindow::createInternal(VkInstance instance, uint32_t width, u
 #elif defined(USE_PLATFORM_WAYLAND)
 
 	// init variables
-	_wayland.forcedFrame = false;
 	_wayland.xdgSurface = nullptr;
 	_wayland.xdgTopLevel = nullptr;
 	_wayland.decoration = nullptr;
 	_wayland.libdecorFrame = nullptr;
 	_wayland.scheduledFrameCallback = nullptr;
+	_wayland.forcedFrame = false;
+	_wayland.numSyncEventsOnTheFly = 0;
 	_wayland.windowState = WindowState::Hidden;
 
 	// create wl surface
