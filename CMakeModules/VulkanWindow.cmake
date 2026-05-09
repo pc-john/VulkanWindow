@@ -44,7 +44,7 @@ macro(VulkanWindowConfigure APP_SOURCES APP_INCLUDES libs defines includes)
 
 		# configure for Xlib
 		find_package(X11 REQUIRED)
-		set(${libs} ${${libs}} X11 xkbcommon)
+		set(${libs} ${${libs}} X11 -l:libxkbcommon.so.0)
 		set(${defines} ${${defines}} USE_PLATFORM_XLIB)
 
 	elseif("${GUI_TYPE}" STREQUAL "Wayland")
