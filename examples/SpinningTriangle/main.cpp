@@ -726,10 +726,11 @@ void App::frame(VulkanWindow&)
 				imageAvailableFence,  // fence to signal
 				&acquiredImageIndex   // pImageIndex
 			);
-		if(r == vk::Result::eSuccess) {
-			
-			// wait for previous frame rendering work and for imageAvailableFence
-			r =
+
+		// wait for previous frame rendering work and for imageAvailableFence
+		if(r == vk::Result::eSuccess || r == vk::Result::eSuboptimalKHR)
+		{
+			vk::Result waitResult =
 				device.waitForFences(
 					2,  // fenceCount
 					array{  // pFences
@@ -739,36 +740,23 @@ void App::frame(VulkanWindow&)
 					VK_TRUE,  // waitAll
 					uint64_t(1.5e9)  // timeout
 				);
-			if(r != vk::Result::eSuccess) {
-				if(r == vk::Result::eTimeout)
+			if(waitResult != vk::Result::eSuccess) {
+				if(waitResult == vk::Result::eTimeout)
 					throw runtime_error("GPU timeout. Task is probably hanging on GPU.");
 				throw runtime_error("Vulkan error: vkWaitForFences failed with error " + to_string(r) + ".");
 			}
 
-		} else {
-
+			// resize swapchain on suboptimal result
 			if(r == vk::Result::eSuboptimalKHR) {
-
-				// wait for imageAvailableFence (to neutralize the submitted fence)
-				r = device.waitForFences(
-					1,  // fenceCount
-					array{  // pFences
-						imageAvailableFence,
-					}.data(),
-					VK_TRUE,  // waitAll
-					uint64_t(1.5e9)  // timeout
-				);
-				if(r != vk::Result::eSuccess) {
-					if(r == vk::Result::eTimeout)
-						throw runtime_error("GPU timeout. Task is probably hanging on GPU.");
-					throw runtime_error("Vulkan error: vkWaitForFences failed with error " + to_string(r) + ".");
-				}
-
 				window.scheduleResize();
 				cout << "acquire result: Suboptimal" << endl;
 				return;
-
-			} else if(r == vk::Result::eErrorOutOfDateKHR) {
+			}
+		}
+		else
+		{
+			// handle errors
+			if(r == vk::Result::eErrorOutOfDateKHR) {
 				window.scheduleResize();
 				cout << "acquire error: OutOfDate" << endl;
 				return;
