@@ -85,10 +85,13 @@ enum VkResult;
 	#define VKAPI_CALL
 	#define VKAPI_PTR
 #endif
-enum VkStructureType;
-enum VkResult;
 #if !defined(VK_HEADER_VERSION)
+enum VkStructureType : uint32_t;
+enum VkResult : uint32_t;
 constexpr const VkResult VK_SUCCESS = VkResult(0);
+constexpr const VkStructureType VK_STRUCTURE_TYPE_WIN32_SURFACE_CREATE_INFO_KHR = VkStructureType(1000009000);
+constexpr const VkStructureType VK_STRUCTURE_TYPE_XLIB_SURFACE_CREATE_INFO_KHR = VkStructureType(1000004000);
+constexpr const VkStructureType VK_STRUCTURE_TYPE_WAYLAND_SURFACE_CREATE_INFO_KHR = VkStructureType(1000006000);
 #endif
 #if defined(USE_PLATFORM_WIN32)
 struct VkWin32SurfaceCreateInfoKHR {
@@ -98,7 +101,6 @@ struct VkWin32SurfaceCreateInfoKHR {
 	HINSTANCE         hinstance;
 	HWND              hwnd;
 };
-constexpr const VkStructureType VK_STRUCTURE_TYPE_WIN32_SURFACE_CREATE_INFO_KHR = 1000009000;
 typedef VkResult (VKAPI_PTR *PFN_vkCreateWin32SurfaceKHR)(VkInstance instance, const VkWin32SurfaceCreateInfoKHR* pCreateInfo, const void* pAllocator, VkSurfaceKHR* pSurface);
 #elif defined(USE_PLATFORM_XLIB)
 struct VkXlibSurfaceCreateInfoKHR {
@@ -108,7 +110,6 @@ struct VkXlibSurfaceCreateInfoKHR {
 	Display*          dpy;
 	Window            window;
 };
-constexpr const VkStructureType VK_STRUCTURE_TYPE_XLIB_SURFACE_CREATE_INFO_KHR = 1000004000;
 typedef VkResult (VKAPI_PTR *PFN_vkCreateXlibSurfaceKHR)(VkInstance instance, const VkXlibSurfaceCreateInfoKHR* pCreateInfo, const void* pAllocator, VkSurfaceKHR* pSurface);
 #elif defined(USE_PLATFORM_WAYLAND)
 struct VkWaylandSurfaceCreateInfoKHR {
@@ -118,7 +119,6 @@ struct VkWaylandSurfaceCreateInfoKHR {
 	struct wl_display*   display;
 	struct wl_surface*   surface;
 };
-constexpr const VkStructureType VK_STRUCTURE_TYPE_WAYLAND_SURFACE_CREATE_INFO_KHR = 1000006000;
 typedef VkResult (VKAPI_PTR *PFN_vkCreateWaylandSurfaceKHR)(VkInstance instance, const VkWaylandSurfaceCreateInfoKHR* pCreateInfo, const void* pAllocator, VkSurfaceKHR* pSurface);
 #endif
 struct VkAllocationCallbacks;
