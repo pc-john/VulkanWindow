@@ -31,6 +31,10 @@ public:
 	vector<vk::ImageView> swapchainImageViews;
 	vector<vk::Framebuffer> framebuffers;
 	vector<vk::Semaphore> renderingFinishedSemaphores;
+	uint32_t acquiredImageIndex;
+	vk::Fence renderFinishedFence;
+	vk::CommandBuffer commandBuffer;
+	vk::CommandPool commandBufferPool;
 	vk::Pipeline pipeline;
 	size_t frameID = ~size_t(0);
 	vk::Device device;
@@ -41,24 +45,60 @@ public:
 		VulkanWindow::create(instance, width, height, title);
 	}
 	Window(Window&& other) noexcept : VulkanWindow(move(other))  {
-		swapchain = other.swapchain; other.swapchain = nullptr;
+		swapchain = other.swapchain;
+		other.swapchain = nullptr;
 		swapchainImageViews = move(other.swapchainImageViews);
 		framebuffers = move(other.framebuffers);
 		renderingFinishedSemaphores = move(other.renderingFinishedSemaphores);
-		pipeline = other.pipeline; other.pipeline = nullptr;
+		acquiredImageIndex = other.acquiredImageIndex;
+		other.acquiredImageIndex = ~uint32_t(0);
+		renderFinishedFence = other.renderFinishedFence;
+		other.renderFinishedFence = nullptr;
+		commandBuffer = other.commandBuffer;
+		other.commandBuffer = nullptr;
+		commandBufferPool = other.commandBufferPool;
+		pipeline = other.pipeline;
+		other.pipeline = nullptr;
 		device = other.device;
 	}
 	~Window()  { destroyMembers(); }
 	Window& operator=(Window&& rhs) noexcept {
 		destroyMembers();
 		VulkanWindow::operator=(move(rhs));
-		swapchain = rhs.swapchain; rhs.swapchain = nullptr;
+		swapchain = rhs.swapchain;
+		rhs.swapchain = nullptr;
 		swapchainImageViews = move(rhs.swapchainImageViews);
 		framebuffers = move(rhs.framebuffers);
 		renderingFinishedSemaphores = move(rhs.renderingFinishedSemaphores);
-		pipeline = rhs.pipeline; rhs.pipeline = nullptr;
+		acquiredImageIndex = rhs.acquiredImageIndex;
+		rhs.acquiredImageIndex = ~uint32_t(0);
+		renderFinishedFence = rhs.renderFinishedFence;
+		rhs.renderFinishedFence = nullptr;
+		commandBuffer = rhs.commandBuffer;
+		rhs.commandBuffer = nullptr;
+		commandBufferPool = rhs.commandBufferPool;
+		pipeline = rhs.pipeline;
+		rhs.pipeline = nullptr;
 		device = rhs.device;
 		return *this;
+	}
+	void init(vk::Device d, vk::CommandPool commandPool) {
+		device = d;
+		renderFinishedFence =
+			device.createFence(
+				vk::FenceCreateInfo(
+					vk::FenceCreateFlagBits::eSignaled  // flags
+				)
+			);
+		commandBuffer =
+			device.allocateCommandBuffers(
+				vk::CommandBufferAllocateInfo(
+					commandPool,  // commandPool
+					vk::CommandBufferLevel::ePrimary,  // level
+					1  // commandBufferCount
+				)
+			)[0];
+		commandBufferPool = commandPool;
 	}
 protected:
 	void destroyMembers() noexcept;  // destroys only members of this object; not any parent class members
@@ -84,8 +124,13 @@ void Window::destroyMembers() noexcept
 	swapchainImageViews.clear();
 	device.destroy(swapchain);
 	swapchain = nullptr;
+	acquiredImageIndex = ~uint32_t(0);
 	device.destroy(pipeline);
 	pipeline = nullptr;
+	device.freeCommandBuffers(commandBufferPool, commandBuffer);
+	commandBuffer = nullptr;
+	device.destroy(renderFinishedFence);
+	renderFinishedFence = nullptr;
 }
 
 
@@ -121,9 +166,7 @@ public:
 	vk::SurfaceFormatKHR surfaceFormat;
 	vk::RenderPass renderPass;
 	vk::CommandPool commandPool;
-	vk::CommandBuffer commandBuffer;
-	vk::Semaphore imageAvailableSemaphore;
-	vk::Fence renderFinishedFence;
+	vk::Fence imageAvailableFence;
 	vk::ShaderModule vsModule;
 	vk::ShaderModule fsModule;
 	vk::PipelineLayout pipelineLayout;
@@ -155,8 +198,7 @@ App::~App()
 		device.destroy(vsModule);
 		device.destroy(fsModule);
 		device.destroy(pipelineLayout);
-		device.destroy(renderFinishedFence);
-		device.destroy(imageAvailableSemaphore);
+		device.destroy(imageAvailableFence);
 		device.destroy(commandPool);
 		device.destroy(renderPass);
 		device.destroy();
@@ -327,10 +369,6 @@ void App::init()
 	graphicsQueue = device.getQueue(graphicsQueueFamily, 0);
 	presentationQueue = device.getQueue(presentationQueueFamily, 0);
 
-	// set device for all Windows
-	for(Window& w : windowList)
-		w.device = device;
-
 	// choose surface format
 	constexpr const array allowedSurfaceFormats{
 		vk::SurfaceFormatKHR{ vk::Format::eB8G8R8A8Srgb, vk::ColorSpaceKHR::eSrgbNonlinear },
@@ -413,35 +451,11 @@ void App::init()
 			)
 		);
 
-	// commandPool and commandBuffer
-	commandPool =
-		device.createCommandPool(
-			vk::CommandPoolCreateInfo(
-				vk::CommandPoolCreateFlagBits::eTransient |  // flags
-					vk::CommandPoolCreateFlagBits::eResetCommandBuffer,
-				graphicsQueueFamily  // queueFamilyIndex
-			)
-		);
-	commandBuffer =
-		device.allocateCommandBuffers(
-			vk::CommandBufferAllocateInfo(
-				commandPool,  // commandPool
-				vk::CommandBufferLevel::ePrimary,  // level
-				1  // commandBufferCount
-			)
-		)[0];
-
-	// rendering semaphore and fence
-	imageAvailableSemaphore =
-		device.createSemaphore(
-			vk::SemaphoreCreateInfo(
-				vk::SemaphoreCreateFlags()  // flags
-			)
-		);
-	renderFinishedFence =
+	// rendering fence
+	imageAvailableFence =
 		device.createFence(
 			vk::FenceCreateInfo(
-				vk::FenceCreateFlagBits::eSignaled  // flags
+				vk::FenceCreateFlags()  // flags
 			)
 		);
 
@@ -474,6 +488,20 @@ void App::init()
 				nullptr  // pPushConstantRanges
 			}
 		);
+
+	// commandPool and commandBuffers
+	commandPool =
+		device.createCommandPool(
+			vk::CommandPoolCreateInfo(
+				vk::CommandPoolCreateFlagBits::eTransient |  // flags
+					vk::CommandPoolCreateFlagBits::eResetCommandBuffer,
+				graphicsQueueFamily  // queueFamilyIndex
+			)
+		);
+
+	// perform init on all Windows
+	for(Window& w : windowList)
+		w.init(device, commandPool);
 }
 
 
@@ -560,6 +588,7 @@ void App::resize(VulkanWindow& w, uint32_t& widthToBeSet, uint32_t& heightToBeSe
 		);
 	device.destroy(window.swapchain);
 	window.swapchain = newSwapchain.release();
+	window.acquiredImageIndex = ~uint32_t(0);
 
 	// swapchain images and image views
 	vector<vk::Image> swapchainImages = device.getSwapchainImagesKHR(window.swapchain);
@@ -741,58 +770,72 @@ void App::frame(VulkanWindow& w)
 	Window& window = static_cast<Window&>(w);
 	cout << "x" << flush;
 
-	// wait for previous frame rendering work
-	// if still not finished
-	vk::Result r =
-		device.waitForFences(
-			renderFinishedFence,  // fences
-			VK_TRUE,  // waitAll
-			uint64_t(3e9)  // timeout
-		);
-	if(r != vk::Result::eSuccess) {
-		if(r == vk::Result::eTimeout)
-			throw runtime_error("GPU timeout. Task is probably hanging on GPU.");
-		throw runtime_error("Vulkan error: vkWaitForFences failed with error " + to_string(r) + ".");
+	// acquire image
+	if(window.acquiredImageIndex == ~uint32_t(0)) {
+
+		device.resetFences(imageAvailableFence);
+		vk::Result r =
+			device.acquireNextImageKHR(
+				window.swapchain,     // swapchain
+				uint64_t(1.5e9),      // timeout (1.5s)
+				nullptr,              // semaphore to signal
+				imageAvailableFence,  // fence to signal
+				&window.acquiredImageIndex  // pImageIndex
+			);
+
+		// wait for previous frame rendering work and for imageAvailableFence
+		if(r == vk::Result::eSuccess || r == vk::Result::eSuboptimalKHR)
+		{
+			vk::Result waitResult =
+				device.waitForFences(
+					2,  // fenceCount
+					array{  // pFences
+						window.renderFinishedFence,
+						imageAvailableFence,
+					}.data(),
+					VK_TRUE,  // waitAll
+					uint64_t(1.5e9)  // timeout
+				);
+			if(waitResult != vk::Result::eSuccess) {
+				if(waitResult == vk::Result::eTimeout)
+					throw runtime_error("GPU timeout. Task is probably hanging on GPU.");
+				throw runtime_error("Vulkan error: vkWaitForFences failed with error " + to_string(r) + ".");
+			}
+
+			// resize swapchain on suboptimal result
+			if(r == vk::Result::eSuboptimalKHR) {
+				window.scheduleResize();
+				cout << "acquire result: Suboptimal" << endl;
+				return;
+			}
+		}
+		else
+		{
+			// handle errors
+			if(r == vk::Result::eErrorOutOfDateKHR) {
+				window.scheduleResize();
+				cout << "acquire error: OutOfDate" << endl;
+				return;
+			} else
+				throw runtime_error("Vulkan error: vkAcquireNextImageKHR failed with error " + to_string(r) + ".");
+		}
+
 	}
-	device.resetFences(renderFinishedFence);
 
 	// increment frame counter
 	window.frameID++;
 
-	// acquire image
-	uint32_t imageIndex;
-	r =
-		device.acquireNextImageKHR(
-			window.swapchain,         // swapchain
-			uint64_t(3e9),            // timeout (3s)
-			imageAvailableSemaphore,  // semaphore to signal
-			vk::Fence(nullptr),       // fence to signal
-			&imageIndex               // pImageIndex
-		);
-	if(r != vk::Result::eSuccess) {
-		if(r == vk::Result::eSuboptimalKHR) {
-			window.scheduleResize();
-			cout << "acquire result: Suboptimal" << endl;
-			return;
-		} else if(r == vk::Result::eErrorOutOfDateKHR) {
-			window.scheduleResize();
-			cout << "acquire error: OutOfDate" << endl;
-			return;
-		} else
-			throw runtime_error("Vulkan error: vkAcquireNextImageKHR failed with error " + to_string(r) + ".");
-	}
-
 	// record command buffer
-	commandBuffer.begin(
+	window.commandBuffer.begin(
 		vk::CommandBufferBeginInfo(
 			vk::CommandBufferUsageFlagBits::eOneTimeSubmit,  // flags
 			nullptr  // pInheritanceInfo
 		)
 	);
-	commandBuffer.beginRenderPass(
+	window.commandBuffer.beginRenderPass(
 		vk::RenderPassBeginInfo(
 			renderPass,  // renderPass
-			window.framebuffers[imageIndex],  // framebuffer
+			window.framebuffers[window.acquiredImageIndex],  // framebuffer
 			vk::Rect2D(vk::Offset2D(0, 0), vk::Extent2D(window.surfaceWidth(), window.surfaceHeight())),  // renderArea
 			1,  // clearValueCount
 			&(const vk::ClearValue&)vk::ClearValue(  // pClearValues
@@ -803,8 +846,8 @@ void App::frame(VulkanWindow& w)
 	);
 
 	// rendering commands
-	commandBuffer.bindPipeline(vk::PipelineBindPoint::eGraphics, window.pipeline);  // bind pipeline
-	commandBuffer.draw(  // draw single triangle
+	window.commandBuffer.bindPipeline(vk::PipelineBindPoint::eGraphics, window.pipeline);  // bind pipeline
+	window.commandBuffer.draw(  // draw single triangle
 		3,  // vertexCount
 		1,  // instanceCount
 		0,  // firstVertex
@@ -812,41 +855,51 @@ void App::frame(VulkanWindow& w)
 	);
 
 	// end render pass and command buffer
-	commandBuffer.endRenderPass();
-	commandBuffer.end();
+	window.commandBuffer.endRenderPass();
+	window.commandBuffer.end();
 
 	// submit frame
-	vk::Semaphore renderingFinishedSemaphore = window.renderingFinishedSemaphores[imageIndex];
+	device.resetFences(window.renderFinishedFence);
+	vk::Semaphore renderingFinishedSemaphore = window.renderingFinishedSemaphores[window.acquiredImageIndex];
 	graphicsQueue.submit(
 		vk::ArrayProxy<const vk::SubmitInfo>(
 			1,
 			&(const vk::SubmitInfo&)vk::SubmitInfo(
-				1, &imageAvailableSemaphore,  // waitSemaphoreCount + pWaitSemaphores +
-				&(const vk::PipelineStageFlags&)vk::PipelineStageFlags(  // pWaitDstStageMask
-					vk::PipelineStageFlagBits::eColorAttachmentOutput),
-				1, &commandBuffer,  // commandBufferCount + pCommandBuffers
+				0, nullptr, nullptr,  // waitSemaphoreCount + pWaitSemaphores + pWaitDstStageMask
+				1, &window.commandBuffer,  // commandBufferCount + pCommandBuffers
 				1, &renderingFinishedSemaphore  // signalSemaphoreCount + pSignalSemaphores
 			)
 		),
-		renderFinishedFence  // fence
+		window.renderFinishedFence  // fence
 	);
 
 	// present
-	r =
+	vk::Result r =
 		presentationQueue.presentKHR(
 			&(const vk::PresentInfoKHR&)vk::PresentInfoKHR(
 				1, &renderingFinishedSemaphore,  // waitSemaphoreCount + pWaitSemaphores
-				1, &window.swapchain, &imageIndex,  // swapchainCount + pSwapchains + pImageIndices
+				1, &window.swapchain, &window.acquiredImageIndex,  // swapchainCount + pSwapchains + pImageIndices
 				nullptr  // pResults
 			)
 		);
-	if(r != vk::Result::eSuccess) {
+	if(r == vk::Result::eSuccess)
+		window.acquiredImageIndex = ~uint32_t(0);
+	else {
 		if(r == vk::Result::eSuboptimalKHR) {
+			window.acquiredImageIndex = ~uint32_t(0);
 			window.scheduleResize();
 			cout << "present result: Suboptimal" << endl;
 		} else if(r == vk::Result::eErrorOutOfDateKHR) {
+			window.acquiredImageIndex = ~uint32_t(0);
 			window.scheduleResize();
 			cout << "present error: OutOfDate" << endl;
+	#if _WIN32
+		} else if(r == vk::Result(-1000255000)) {  // eErrorFullScreenExclusiveModeLostEXT
+			window.acquiredImageIndex = ~uint32_t(0);
+	#endif
+		} else if(r == vk::Result::eErrorSurfaceLostKHR) {
+			window.acquiredImageIndex = ~uint32_t(0);
+			throw runtime_error("Vulkan error: vkQueuePresentKHR() failed with error " + to_string(r) + ".");
 		} else
 			throw runtime_error("Vulkan error: vkQueuePresentKHR() failed with error " + to_string(r) + ".");
 	}
