@@ -2,6 +2,7 @@
 //
 // SPDX-License-Identifier: MIT-0
 
+#include "VulkanWindow.h"
 #if defined(USE_PLATFORM_WIN32)
 # ifndef NOMINMAX
 #  define NOMINMAX  // avoid the definition of min and max macros by windows.h
@@ -43,8 +44,11 @@
 # include <cmath>
 # include <memory>
 #elif defined(USE_PLATFORM_GLFW)
-# include <vulkan/vulkan.h>  // include Vulkan before GLFW/glfw3.h otherwise some glfw functions are not present
 # define GLFW_INCLUDE_NONE  // do not include OpenGL headers
+# define VK_VERSION_1_0 1  // to enable Vulkan-related glfw functions
+typedef struct VkPhysicalDevice_T* VkPhysicalDevice;
+struct VkAllocationCallbacks;
+enum VkResult;
 # include <GLFW/glfw3.h>
 # include <cmath>
 #elif defined(USE_PLATFORM_QT)
@@ -55,7 +59,6 @@
 # include <QWheelEvent>
 # include <fstream>
 #endif
-#include "VulkanWindow.h"
 #include <algorithm>
 #include <cassert>
 #include <stdexcept>
@@ -82,9 +85,11 @@
 	#define VKAPI_CALL
 	#define VKAPI_PTR
 #endif
-using VkStructureType = uint32_t;
-using VkResult = uint32_t;
-constexpr const VkResult VK_SUCCESS = 0;
+enum VkStructureType;
+enum VkResult;
+#if !defined(VK_HEADER_VERSION)
+constexpr const VkResult VK_SUCCESS = VkResult(0);
+#endif
 #if defined(USE_PLATFORM_WIN32)
 struct VkWin32SurfaceCreateInfoKHR {
 	VkStructureType   sType;
@@ -116,7 +121,8 @@ struct VkWaylandSurfaceCreateInfoKHR {
 constexpr const VkStructureType VK_STRUCTURE_TYPE_WAYLAND_SURFACE_CREATE_INFO_KHR = 1000006000;
 typedef VkResult (VKAPI_PTR *PFN_vkCreateWaylandSurfaceKHR)(VkInstance instance, const VkWaylandSurfaceCreateInfoKHR* pCreateInfo, const void* pAllocator, VkSurfaceKHR* pSurface);
 #endif
-typedef void (VKAPI_PTR *PFN_vkDestroySurfaceKHR)(VkInstance instance, VkSurfaceKHR surface, const void* pAllocator);
+struct VkAllocationCallbacks;
+typedef void (VKAPI_PTR *PFN_vkDestroySurfaceKHR)(VkInstance instance, VkSurfaceKHR surface, const VkAllocationCallbacks* pAllocator);
 
 // xcbcommon types and funcs
 // (we avoid dependency on include xkbcommon/xkbcommon.h to lessen VulkanWindow dependencies)
@@ -1370,8 +1376,8 @@ void VulkanWindow::finalize() noexcept
 	const char* errorString;
 	int errorCode = glfwGetError(&errorString);
 	if(errorCode != GLFW_NO_ERROR) {
-		cout <<  && "VulkanWindow: glfwTerminate() function failed. Error code: 0x"
-		     << hex << errorCode << ". Error string: " << errorString << endl;
+		cout << "VulkanWindow: glfwTerminate() function failed. Error code: 0x"
+		     << hex << errorCode << dec << ". Error string: " << errorString << endl;
 		assert(0 && "VulkanWindow: glfwTerminate() function failed.");
 	}
 # else
@@ -2323,6 +2329,7 @@ VkSurfaceKHR VulkanWindow::createInternal(VkInstance instance, uint32_t width, u
 	_qt.window = new QtRenderingWindow(nullptr, this);
 	_qt.window->setSurfaceType(QSurface::VulkanSurface);
 	_qt.window->setVulkanInstance(qt::qVulkanInstance);
+	_qt.window->setTitle(_title.c_str()); // this treats _title as utf8 string
 	_qt.window->resize(int(_surfaceWidth), int(_surfaceHeight));
 	_qt.window->create();
 
@@ -3413,7 +3420,7 @@ void VulkanWindowPrivate::libdecorFrameConfigure(libdecor_frame* frame, libdecor
 	}
 
 #ifdef VULKAN_WINDOW_DEBUG
-	cout << "libdecor configure: " << w->_surfaceExtent.width <<"x" << w->_surfaceExtent.height << endl;
+	cout << "libdecor configure: " << w->_surfaceWidth << "x" << w->_surfaceHeight << endl;
 #endif
 
 	// set new window state
