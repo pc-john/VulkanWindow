@@ -52,7 +52,7 @@ public:
 	typedef void CloseCallback(VulkanWindow& window);
 
 	// window state
-	enum class WindowState { Hidden, Minimized, Normal, Maximized, FullScreen };
+	enum class WindowState { Hidden, Minimized, Normal, Maximized, Fullscreen };
 
 	// input structures and enums
 	struct MouseButton {
@@ -301,7 +301,7 @@ public:
 	void setWindowState(WindowState windowState);
 
 	// convenience functions calling setWindowState()
-	void showFullScreen();
+	void showFullscreen();
 	void showMaximized();
 	void showNormal();
 	void showMinimized();
@@ -354,7 +354,7 @@ inline uint32_t VulkanWindow::surfaceHeight() const  { return _surfaceHeight; }
 inline const std::string& VulkanWindow::title() const  { return _title; }
 inline void VulkanWindow::setTitle(std::string&& s)  { if(s==_title) return; _title=std::move(s); updateTitle(); }
 inline void VulkanWindow::setTitle(std::string_view s)  { if(s==_title) return; _title=s; updateTitle(); }
-inline void VulkanWindow::showFullScreen()  { setWindowState(WindowState::FullScreen); }
+inline void VulkanWindow::showFullscreen()  { setWindowState(WindowState::Fullscreen); }
 inline void VulkanWindow::showMaximized()  { setWindowState(WindowState::Maximized); }
 inline void VulkanWindow::showNormal()  { setWindowState(WindowState::Normal); }
 inline void VulkanWindow::showMinimized()  { setWindowState(WindowState::Minimized); }

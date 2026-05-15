@@ -927,7 +927,7 @@ void App::key(VulkanWindow& w, VulkanWindow::KeyState keyState, VulkanWindow::Sc
 		return;
 
 	if(key == VulkanWindow::KeyCode::F)
-		w.showFullScreen();
+		w.showFullscreen();
 	else if(key == VulkanWindow::KeyCode::M)
 		w.showMaximized();
 	else if(key == VulkanWindow::KeyCode::N)
@@ -970,7 +970,7 @@ int main(int argc, char* argv[])
 		app.windowList[1].showMinimized();
 		app.windowList[3].showMaximized();
 		app.windowList[2].showNormal();
-		app.windowList[4].showFullScreen();
+		app.windowList[4].showFullscreen();
 
 		cout << "Initial window state:" << endl;
 		for(size_t i=0,c=app.windowList.size(); i<c; i++) {
@@ -983,7 +983,7 @@ int main(int argc, char* argv[])
 			case VulkanWindow::WindowState::Minimized:  cout << "minimized"; break;
 			case VulkanWindow::WindowState::Normal:     cout << "normal"; break;
 			case VulkanWindow::WindowState::Maximized:  cout << "maximized"; break;
-			case VulkanWindow::WindowState::FullScreen: cout << "full screen"; break;
+			case VulkanWindow::WindowState::Fullscreen: cout << "fullscreen"; break;
 			default: cout << "unknown";
 			}
 			cout << endl;

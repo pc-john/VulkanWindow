@@ -873,7 +873,7 @@ void App::frame(VulkanWindow&)
 void App::key(VulkanWindow& w, VulkanWindow::KeyState keyState, VulkanWindow::ScanCode scanCode, VulkanWindow::KeyCode key)
 {
 	if(key == VulkanWindow::KeyCode::F && keyState == VulkanWindow::KeyState::Pressed) {
-		w.setWindowState(fullscreen ? VulkanWindow::WindowState::Normal : VulkanWindow::WindowState::FullScreen);
+		w.setWindowState(fullscreen ? VulkanWindow::WindowState::Normal : VulkanWindow::WindowState::Fullscreen);
 		fullscreen = !fullscreen;
 	}
 }

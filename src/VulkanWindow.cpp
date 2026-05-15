@@ -3354,7 +3354,7 @@ void VulkanWindowPrivate::xdgToplevelListenerConfigure(void* data, xdg_toplevel*
 		}
 	}
 	if(fullscreen)
-		w->_wayland.windowState = WindowState::FullScreen;
+		w->_wayland.windowState = WindowState::Fullscreen;
 	else if(maximized)
 		w->_wayland.windowState = WindowState::Maximized;
 	else
@@ -3403,7 +3403,7 @@ void VulkanWindowPrivate::libdecorFrameConfigure(libdecor_frame* frame, libdecor
 	libdecor_window_state s;
 	if(wayland::funcs.libdecor_configuration_get_window_state(config, &s)) {
 		if(s & LIBDECOR_WINDOW_STATE_FULLSCREEN)
-			w->_wayland.windowState = WindowState::FullScreen;
+			w->_wayland.windowState = WindowState::Fullscreen;
 		else if(s & LIBDECOR_WINDOW_STATE_MAXIMIZED)
 			w->_wayland.windowState = WindowState::Maximized;
 		else
@@ -5117,7 +5117,7 @@ void VulkanWindow::setWindowState(WindowState windowState)
 {
 	// if the window is leaving fullscreen,
 	// give it title bar and borders again and restore its placement
-	bool leavingFullscreen = _win32.fullscreenSavedPlacement && (windowState != WindowState::FullScreen);
+	bool leavingFullscreen = _win32.fullscreenSavedPlacement && (windowState != WindowState::Fullscreen);
 	if(leavingFullscreen)
 	{
 		// disable window animations
@@ -5139,7 +5139,7 @@ void VulkanWindow::setWindowState(WindowState windowState)
 	case WindowState::Minimized:  ShowWindow(HWND(_win32.hwnd), SW_SHOWMINIMIZED); _win32.visible = true; break;
 	case WindowState::Normal:     ShowWindow(HWND(_win32.hwnd), SW_SHOWNORMAL); break;
 	case WindowState::Maximized:  ShowWindow(HWND(_win32.hwnd), SW_SHOWMAXIMIZED); _win32.visible = true; break;
-	case WindowState::FullScreen:
+	case WindowState::Fullscreen:
 
 		// store window placement
 		if(_win32.fullscreenSavedPlacement == nullptr) {
@@ -5295,7 +5295,7 @@ void VulkanWindow::setWindowState(WindowState windowState)
 
 		}
 		break;
-	case WindowState::FullScreen:
+	case WindowState::Fullscreen:
 		if(!isVisible())
 
 			// show the window with appropriate settings
@@ -5341,7 +5341,7 @@ VulkanWindow::WindowState VulkanWindow::windowState() const
 	if(f & SDL_WINDOW_MINIMIZED)
 		return WindowState::Minimized;
 	if(f & SDL_WINDOW_FULLSCREEN)
-		return WindowState::FullScreen;
+		return WindowState::Fullscreen;
 	if(f & SDL_WINDOW_MAXIMIZED)
 		return WindowState::Maximized;
 	else
@@ -5353,7 +5353,7 @@ void VulkanWindow::setWindowState(WindowState windowState)
 	// leave fullscreen mode if needed
 	SDL_WindowFlags f = SDL_GetWindowFlags(_sdl.window);
 	if(f & SDL_WINDOW_FULLSCREEN) {
-		if(windowState == WindowState::FullScreen)
+		if(windowState == WindowState::Fullscreen)
 			return;
 		else
 			SDL_SetWindowFullscreen(_sdl.window, false);
@@ -5379,7 +5379,7 @@ void VulkanWindow::setWindowState(WindowState windowState)
 			throw runtime_error("VulkanWindow::setWindowState(): Failed to maximize window.");
 		show();
 		break;
-	case WindowState::FullScreen:
+	case WindowState::Fullscreen:
 		if(!SDL_SetWindowFullscreen(_sdl.window, true))
 			throw runtime_error("VulkanWindow::setWindowState(): Failed to make window fullscreen.");
 		show();
@@ -5402,7 +5402,7 @@ VulkanWindow::WindowState VulkanWindow::windowState() const
 	if(f & SDL_WINDOW_MINIMIZED)
 		return WindowState::Minimized;
 	if(f & SDL_WINDOW_FULLSCREEN)
-		return WindowState::FullScreen;
+		return WindowState::Fullscreen;
 	if(f & SDL_WINDOW_MAXIMIZED)
 		return WindowState::Maximized;
 	else
@@ -5414,7 +5414,7 @@ void VulkanWindow::setWindowState(WindowState windowState)
 	// leave fullscreen mode if needed
 	Uint32 f = SDL_GetWindowFlags(_sdl.window);
 	if(f & SDL_WINDOW_FULLSCREEN) {
-		if(windowState == WindowState::FullScreen)
+		if(windowState == WindowState::Fullscreen)
 			return;
 		else
 			SDL_SetWindowFullscreen(_sdl.window, 0);  // leave full screen mode
@@ -5426,7 +5426,7 @@ void VulkanWindow::setWindowState(WindowState windowState)
 	case WindowState::Minimized:  show(); SDL_MinimizeWindow(_sdl.window); break;
 	case WindowState::Normal:     SDL_RestoreWindow(_sdl.window); show(); break;
 	case WindowState::Maximized:  SDL_MaximizeWindow(_sdl.window); show(); break;
-	case WindowState::FullScreen: if(SDL_SetWindowFullscreen(_sdl.window, SDL_WINDOW_FULLSCREEN_DESKTOP) != 0)
+	case WindowState::Fullscreen: if(SDL_SetWindowFullscreen(_sdl.window, SDL_WINDOW_FULLSCREEN_DESKTOP) != 0)
 		                              throw runtime_error("VulkanWindow::setWindowState(): Failed to make window fullscreen.");
 		                          show();
 		                          break;
@@ -5446,7 +5446,7 @@ VulkanWindow::WindowState VulkanWindow::windowState() const
 	if(glfwGetWindowAttrib(_glfw.window, GLFW_ICONIFIED))
 		return WindowState::Minimized;
 	if(glfwGetWindowMonitor(_glfw.window) != nullptr)
-		return WindowState::FullScreen;
+		return WindowState::Fullscreen;
 	if(glfwGetWindowAttrib(_glfw.window, GLFW_MAXIMIZED))
 		return WindowState::Maximized;
 	else
@@ -5457,7 +5457,7 @@ void VulkanWindow::setWindowState(WindowState windowState)
 {
 	// leave fullscreen mode if needed
 	if(glfwGetWindowMonitor(_glfw.window) != nullptr) {
-		if(windowState == WindowState::FullScreen)
+		if(windowState == WindowState::Fullscreen)
 			return;
 		else {
 			if(windowState == WindowState::Hidden || windowState == WindowState::Normal ||
@@ -5474,7 +5474,7 @@ void VulkanWindow::setWindowState(WindowState windowState)
 	case WindowState::Minimized:  glfwIconifyWindow(_glfw.window); show(); break;
 	case WindowState::Normal:     glfwRestoreWindow(_glfw.window); show(); break;
 	case WindowState::Maximized:  glfwMaximizeWindow(_glfw.window); show(); break;
-	case WindowState::FullScreen: {
+	case WindowState::Fullscreen: {
 			GLFWmonitor* m = glfwGetPrimaryMonitor();
 			const GLFWvidmode* mode = glfwGetVideoMode(m);
 			glfwSetWindowMonitor(_glfw.window, m, 0, 0, mode->width, mode->height, mode->refreshRate);
@@ -5496,7 +5496,7 @@ VulkanWindow::WindowState VulkanWindow::windowState() const
 	case Qt::WindowMinimized:   return WindowState::Minimized;
 	case Qt::WindowNoState:     return WindowState::Normal;
 	case Qt::WindowMaximized:   return WindowState::Maximized;
-	case Qt::WindowFullScreen:  return WindowState::FullScreen;
+	case Qt::WindowFullscreen:  return WindowState::Fullscreen;
 	default: throw runtime_error("VulkanWindow::windowState(): Unknown WindowState value.");
 	}
 }
@@ -5508,7 +5508,7 @@ void VulkanWindow::setWindowState(WindowState windowState)
 	case WindowState::Minimized:  _qt.window->showMinimized(); break;
 	case WindowState::Normal:     _qt.window->showNormal(); break;
 	case WindowState::Maximized:  _qt.window->showMaximized(); break;
-	case WindowState::FullScreen: _qt.window->showFullScreen(); break;
+	case WindowState::Fullscreen: _qt.window->showFullscreen(); break;
 	default: throw runtime_error("VulkanWindow::setWindowState(): Invalid WindowState value passed as parameter.");
 	}
 }
