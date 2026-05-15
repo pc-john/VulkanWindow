@@ -11,9 +11,11 @@
 #  define WIN32_LEAN_AND_MEAN  // reduce amount of included files by windows.h
 # endif
 # include <windows.h>
-# include <windowsx.h>
+# include <windowsx.h>  // GET_X_LPARAM and GET_Y_LPARAM
 # include <tchar.h>
 # include <type_traits>
+# include <dwmapi.h>  // DwmSetWindowAttribute() (since Windows Vista)
+# pragma comment(lib, "dwmapi.lib")  // DwmSetWindowAttribute()
 #elif defined(USE_PLATFORM_XLIB)
 # include <X11/Xutil.h>
 # include <map>
@@ -1440,17 +1442,20 @@ void VulkanWindow::destroy() noexcept
 	// release resources
 	// (do not throw in destructor, so ignore the errors in release builds
 	// and assert in debug builds)
+	_win32.visible = false;
 # ifdef NDEBUG
 	DestroyWindow(HWND(_win32.hwnd));
-	_win32.hwnd = nullptr;
 # else
-	_win32.visible = false;
 	assert(win32::windowClass && "VulkanWindow::destroy(): Window class does not exist. "
 	                             "Did you called VulkanWindow::finalize() prematurely?");
 	if(!DestroyWindow(HWND(_win32.hwnd)))
 		assert(0 && "DestroyWindow(): The function failed.");
-	_win32.hwnd = nullptr;
 # endif
+	if(_win32.hwnd && _win32.fullscreenSavedPlacement) {
+		free(_win32.fullscreenSavedPlacement);
+		_win32.fullscreenSavedPlacement = nullptr;
+	}
+	_win32.hwnd = nullptr;
 
 #elif defined(USE_PLATFORM_XLIB)
 
@@ -1606,6 +1611,7 @@ VulkanWindow::VulkanWindow(VulkanWindow&& other) noexcept
 	// move members
 	_win32 = other._win32;
 	other._win32.hwnd = nullptr;
+	other._win32.fullscreenSavedPlacement = nullptr;
 
 	// update pointers to this object
 	if(_win32.hwnd)
@@ -1747,6 +1753,7 @@ VulkanWindow& VulkanWindow::operator=(VulkanWindow&& other) noexcept
 	// move members
 	_win32 = other._win32;
 	other._win32.hwnd = nullptr;
+	other._win32.fullscreenSavedPlacement = nullptr;
 
 	// update pointers to this object
 	if(_win32.hwnd)
@@ -1926,7 +1933,7 @@ VkSurfaceKHR VulkanWindow::createInternal(VkInstance instance, uint32_t width, u
 	_win32.titleBarLeftButtonDownMsgOnHold = false;
 
 	DWORD style = WS_OVERLAPPEDWINDOW;
-	DWORD exStyle = WS_EX_CLIENTEDGE;
+	DWORD exStyle = WS_EX_WINDOWEDGE;
 	RECT rect{ 0, 0, LONG(_surfaceWidth), LONG(_surfaceHeight) };
 	if(AdjustWindowRectEx(&rect, style, BOOL(0), exStyle) == 0)
 		throw runtime_error("VulkanWindow: Cannot create window. The function AdjustWindowRectEx() failed.");
@@ -1947,6 +1954,9 @@ VkSurfaceKHR VulkanWindow::createInternal(VkInstance instance, uint32_t width, u
 
 	// store this pointer with the window data
 	SetWindowLongPtr(HWND(_win32.hwnd), 0, LONG_PTR(this));
+
+	// initialize fullscreen data pointer
+	_win32.fullscreenSavedPlacement = nullptr;
 
 	// create surface
 	PFN_vkCreateWin32SurfaceKHR vkCreateWin32SurfaceKHR =
@@ -5105,12 +5115,63 @@ VulkanWindow::WindowState VulkanWindow::windowState() const
 
 void VulkanWindow::setWindowState(WindowState windowState)
 {
+	// if the window is leaving fullscreen,
+	// give it title bar and borders again and restore its placement
+	bool leavingFullscreen = _win32.fullscreenSavedPlacement && (windowState != WindowState::FullScreen);
+	if(leavingFullscreen)
+	{
+		// disable window animations
+		HRESULT r = DwmSetWindowAttribute(HWND(_win32.hwnd), DWMWA_TRANSITIONS_FORCEDISABLED, &(const BOOL&)BOOL(TRUE), sizeof(BOOL));
+		assert(r == S_OK || r == DWM_E_COMPOSITIONDISABLED && "VulkanWindow::setWindowState(): The function DwmSetWindowAttribute() failed.");
+
+		// unset fullscreen appearance on the window
+		SetWindowLong(HWND(_win32.hwnd), GWL_STYLE, WS_OVERLAPPEDWINDOW);
+		SetWindowLong(HWND(_win32.hwnd), GWL_EXSTYLE, WS_EX_WINDOWEDGE);
+		if(SetWindowPlacement(HWND(_win32.hwnd), static_cast<WINDOWPLACEMENT*>(_win32.fullscreenSavedPlacement)) == 0)
+			throw runtime_error("VulkanWindow::setWindowState(): The function SetWindowPlacement() failed.");
+		free(_win32.fullscreenSavedPlacement);
+		_win32.fullscreenSavedPlacement = nullptr;
+	}
+
+	// set new window state
 	switch(windowState) {
 	case WindowState::Hidden:     hide(); break;
 	case WindowState::Minimized:  ShowWindow(HWND(_win32.hwnd), SW_SHOWMINIMIZED); _win32.visible = true; break;
 	case WindowState::Normal:     ShowWindow(HWND(_win32.hwnd), SW_SHOWNORMAL); break;
 	case WindowState::Maximized:  ShowWindow(HWND(_win32.hwnd), SW_SHOWMAXIMIZED); _win32.visible = true; break;
-	case WindowState::FullScreen: break;
+	case WindowState::FullScreen:
+
+		// store window placement
+		if(_win32.fullscreenSavedPlacement == nullptr) {
+			_win32.fullscreenSavedPlacement = malloc(sizeof(WINDOWPLACEMENT));
+			static_cast<WINDOWPLACEMENT*>(_win32.fullscreenSavedPlacement)->length = sizeof(WINDOWPLACEMENT);
+			if(GetWindowPlacement(HWND(_win32.hwnd), static_cast<WINDOWPLACEMENT*>(_win32.fullscreenSavedPlacement)) == 0)
+				throw runtime_error("VulkanWindow::setWindowState(): The function GetWindowPlacement() failed.");
+		}
+
+		// disable window animations
+		HRESULT r = DwmSetWindowAttribute(HWND(_win32.hwnd), DWMWA_TRANSITIONS_FORCEDISABLED, &(const BOOL&)BOOL(TRUE), sizeof(BOOL));
+		assert(r == S_OK || r == DWM_E_COMPOSITIONDISABLED && "VulkanWindow::setWindowState(): The function DwmSetWindowAttribute() failed.");
+
+		// show window maximized and with the new style
+		ShowWindow(HWND(_win32.hwnd), SW_SHOWNORMAL);  // this makes top-left menu not disappear if the window was never shown yet
+		SetWindowLong(HWND(_win32.hwnd), GWL_STYLE, WS_POPUP);
+		SetWindowLong(HWND(_win32.hwnd), GWL_EXSTYLE, 0);
+		ShowWindow(HWND(_win32.hwnd), SW_SHOWMAXIMIZED);
+		_win32.visible = true;
+
+		// enable window animations
+		r = DwmSetWindowAttribute(HWND(_win32.hwnd), DWMWA_TRANSITIONS_FORCEDISABLED, &(const BOOL&)BOOL(FALSE), sizeof(BOOL));
+		assert(r == S_OK || r == DWM_E_COMPOSITIONDISABLED && "VulkanWindow::setWindowState(): The function DwmSetWindowAttribute() failed.");
+
+		break;
+	}
+
+	// if the window is leaving fullscreen, restore window animations again
+	if(leavingFullscreen)
+	{
+		HRESULT r = DwmSetWindowAttribute(HWND(_win32.hwnd), DWMWA_TRANSITIONS_FORCEDISABLED, &(const BOOL&)BOOL(FALSE), sizeof(BOOL));
+		assert(r == S_OK || r == DWM_E_COMPOSITIONDISABLED && "VulkanWindow::setWindowState(): The function DwmSetWindowAttribute() failed.");
 	}
 }
 

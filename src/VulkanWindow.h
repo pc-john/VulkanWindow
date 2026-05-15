@@ -147,6 +147,7 @@ protected:
 			bool hiddenWindowFramePending;
 			bool titleBarLeftButtonDownMsgOnHold;
 			int64_t titleBarLeftButtonDownPos;
+			void* fullscreenSavedPlacement;
 
 		} _win32;
 

@@ -34,6 +34,7 @@ public:
 	void init();
 	void resize(VulkanWindow&, uint32_t& widthToBeSet, uint32_t& heightToBeSet);
 	void frame(VulkanWindow& window);
+	void key(VulkanWindow& window, VulkanWindow::KeyState keyState, VulkanWindow::ScanCode scanCode, VulkanWindow::KeyCode key);
 
 	// Vulkan instance must be destructed as the last Vulkan handle.
 	// It is probably good idea to destroy it after the display connection.
@@ -72,6 +73,7 @@ public:
 	size_t frameID = ~size_t(0);
 	size_t fpsNumFrames = ~size_t(0);
 	chrono::high_resolution_clock::time_point fpsStartTime;
+	bool fullscreen = false;
 
 };
 
@@ -868,6 +870,15 @@ void App::frame(VulkanWindow&)
 }
 
 
+void App::key(VulkanWindow& w, VulkanWindow::KeyState keyState, VulkanWindow::ScanCode scanCode, VulkanWindow::KeyCode key)
+{
+	if(key == VulkanWindow::KeyCode::F && keyState == VulkanWindow::KeyState::Pressed) {
+		w.setWindowState(fullscreen ? VulkanWindow::WindowState::Normal : VulkanWindow::WindowState::FullScreen);
+		fullscreen = !fullscreen;
+	}
+}
+
+
 int main(int argc, char* argv[])
 {
 	// catch exceptions
@@ -888,6 +899,7 @@ int main(int argc, char* argv[])
 		app.window.setFrameCallback(
 			bind(&App::frame, &app, placeholders::_1)
 		);
+		app.window.setKeyCallback(bind(&App::key, &app, placeholders::_1, placeholders::_2, placeholders::_3, placeholders::_4));
 		app.window.show();
 		app.window.mainLoop();
 
