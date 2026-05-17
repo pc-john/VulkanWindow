@@ -318,12 +318,34 @@ struct xlib {
 	static inline bool externalDisplayHandle;
 	static inline map<Window, VulkanWindow*> vulkanWindowMap;
 	static inline bool running;  // bool indicating that application is running and it shall not leave main loop
-	static inline unsigned long wmDeleteMessage;  // unsigned long is used for Atom type
-	static inline unsigned long wmStateProperty;  // unsigned long is used for Atom type
-	static inline unsigned long netWmName;  // unsigned long is used for Atom type
-	static inline unsigned long utf8String;  // unsigned long is used for Atom type
+
+	// xlib Atoms
+	static inline unsigned long wmDeleteWindow;
+	static inline unsigned long wmState;
+	static inline unsigned long wmChangeState;
+	static inline unsigned long netWmName;
+	static inline unsigned long netWmState;
+	static inline unsigned long netWmStateFullscreen;
+	static inline unsigned long netWmStateMaximizedHorz;
+	static inline unsigned long netWmStateMaximizedVert;
+	static inline unsigned long netWmStateHidden;
+	static inline unsigned long utf8String;
+
 	static inline const vector<const char*> requiredInstanceExtensions =
 		{ "VK_KHR_surface", "VK_KHR_xlib_surface" };
+
+	static void initAtoms() {
+		wmDeleteWindow = XInternAtom(display, "WM_DELETE_WINDOW", False);
+		wmState = XInternAtom(display, "WM_STATE", False);
+		wmChangeState = XInternAtom(display, "WM_CHANGE_STATE", False);
+		netWmName  = XInternAtom(display, "_NET_WM_NAME", False);
+		netWmState = XInternAtom(display, "_NET_WM_STATE", False);
+		netWmStateFullscreen = XInternAtom(display, "_NET_WM_STATE_FULLSCREEN", False);
+		netWmStateMaximizedHorz = XInternAtom(display, "_NET_WM_STATE_MAXIMIZED_HORZ", False);
+		netWmStateMaximizedVert = XInternAtom(display, "_NET_WM_STATE_MAXIMIZED_VERT", False);
+		netWmStateHidden = XInternAtom(display, "_NET_WM_STATE_HIDDEN", False);
+		utf8String = XInternAtom(display, "UTF8_STRING", False);
+	}
 
 };
 
@@ -942,10 +964,7 @@ void VulkanWindow::init()
 	xlib::externalDisplayHandle = false;
 
 	// get atoms
-	xlib::wmDeleteMessage = XInternAtom(xlib::display, "WM_DELETE_WINDOW", False);
-	xlib::wmStateProperty = XInternAtom(xlib::display, "WM_STATE", False);
-	xlib::netWmName  = XInternAtom(xlib::display, "_NET_WM_NAME", False);
-	xlib::utf8String = XInternAtom(xlib::display, "UTF8_STRING", False);
+	xlib::initAtoms();
 
 #elif defined(USE_PLATFORM_WAYLAND)
 
@@ -1067,10 +1086,7 @@ void VulkanWindow::init(void* data)
 	}
 
 	// get atoms
-	xlib::wmDeleteMessage = XInternAtom(xlib::display, "WM_DELETE_WINDOW", False);
-	xlib::wmStateProperty = XInternAtom(xlib::display, "WM_STATE", False);
-	xlib::netWmName  = XInternAtom(xlib::display, "_NET_WM_NAME", False);
-	xlib::utf8String = XInternAtom(xlib::display, "UTF8_STRING", False);
+	xlib::initAtoms();
 
 #elif defined(USE_PLATFORM_WAYLAND)
 
@@ -1987,7 +2003,6 @@ VkSurfaceKHR VulkanWindow::createInternal(VkInstance instance, uint32_t width, u
 	_xlib.framePending = true;
 	_xlib.visible = false;
 	_xlib.fullyObscured = false;
-	_xlib.iconVisible = false;
 	_xlib.minimized = false;
 
 	// create window
@@ -2009,7 +2024,7 @@ VkSurfaceKHR VulkanWindow::createInternal(VkInstance instance, uint32_t width, u
 		);
 	if(xlib::vulkanWindowMap.emplace(_xlib.window, this).second == false)
 		throw runtime_error("VulkanWindow: The window already exists.");
-	XSetWMProtocols(xlib::display, _xlib.window, &xlib::wmDeleteMessage, 1);
+	XSetWMProtocols(xlib::display, _xlib.window, &xlib::wmDeleteWindow, 1);
 	XSetStandardProperties(xlib::display, _xlib.window, _title.c_str(), _title.c_str(), None, NULL, 0, NULL);
 	XChangeProperty(
 		xlib::display,
@@ -2895,11 +2910,10 @@ void VulkanWindow::show()
 
 	// show window
 	_xlib.visible = true;
-	_xlib.iconVisible = true;
 	_xlib.fullyObscured = false;
-	XMapWindow(xlib::display, _xlib.window);
+	XMapWindow(xlib::display, _xlib.window);  // shows the window; MapNotify event will delivered later
 	if(_xlib.minimized)
-		XIconifyWindow(xlib::display, _xlib.window, XDefaultScreen(xlib::display));
+		XIconifyWindow(xlib::display, _xlib.window, XDefaultScreen(xlib::display));  // makes only taskbar icon visible; PropertyNotify event for WM_STATE change will be delivered later
 	else
 		scheduleFrame();
 }
@@ -2910,18 +2924,16 @@ void VulkanWindow::hide()
 	// assert for valid usage
 	assert(_surface && "VulkanWindow::_surface is null, indicating invalid VulkanWindow object. Call VulkanWindow::create() to initialize it.");
 
-	if(!_xlib.visible && !_xlib.iconVisible)
+	if(!_xlib.visible)
 		return;
 
-	_xlib.visible = false;
-	_xlib.iconVisible = false;
-	_xlib.fullyObscured = true;
-
 	// update _minimized
-	updateMinimized();
+	updateVisibleAndMinimized();
 
 	// unmap window and hide taskbar icon
 	XWithdrawWindow(xlib::display, _xlib.window, XDefaultScreen(xlib::display));
+	_xlib.visible = false;
+	_xlib.fullyObscured = true;
 
 	// delete all Expose events and cancel any pending frames
 	XEvent tmp;
@@ -2930,10 +2942,10 @@ void VulkanWindow::hide()
 }
 
 
-void VulkanWindow::updateMinimized()
+void VulkanWindow::updateVisibleAndMinimized()
 {
 	// read the new value of WM_STATE property
-	unsigned char* data;
+	unsigned char* data = nullptr;
 	Atom actualType;
 	int actualFormat;
 	unsigned long itemsRead;
@@ -2941,10 +2953,10 @@ void VulkanWindow::updateMinimized()
 	if(XGetWindowProperty(
 			xlib::display,  // display
 			_xlib.window,  // window
-			xlib::wmStateProperty,  // property
+			xlib::wmState,  // property
 			0, 1,  // long_offset, long_length
 			False,  // delete
-			xlib::wmStateProperty, // req_type
+			xlib::wmState, // req_type
 			&actualType,  // actual_type_return
 			&actualFormat,  // actual_format_return
 			&itemsRead,  // nitems_return
@@ -2953,15 +2965,20 @@ void VulkanWindow::updateMinimized()
 		) == Success && itemsRead > 0)
 	{
 	#ifdef VULKAN_WINDOW_DEBUG
-		cout << "New WM_STATE: " << *reinterpret_cast<unsigned*>(data) << endl;
+		cout << "New WM_STATE: " << *reinterpret_cast<uint32_t*>(data) << endl;
 	#endif
-		_xlib.minimized = *reinterpret_cast<unsigned*>(data) == 3;
-		XFree(data);
+		switch(*reinterpret_cast<uint32_t*>(data)) {
+		case 0: _xlib.visible = false; break;
+		case 1: _xlib.visible = true; _xlib.minimized = false; break;
+		case 3: _xlib.visible = true; _xlib.minimized = true; break;
+		}
 	}
-	#ifdef VULKAN_WINDOW_DEBUG
+#ifdef VULKAN_WINDOW_DEBUG
 	else
 		cout << "WM_STATE reading failed" << endl;
-	#endif
+#endif
+	if(data)
+		XFree(data);
 }
 
 
@@ -3169,7 +3186,8 @@ void VulkanWindow::mainLoop()
 		#endif
 			if(w->_xlib.visible == false)
 				continue;
-			w->_xlib.visible = false;
+			if(w->_xlib.minimized == false)
+				w->_xlib.visible = false;
 			w->_xlib.fullyObscured = true;
 
 			XEvent tmp;
@@ -3201,13 +3219,13 @@ void VulkanWindow::mainLoop()
 
 		// minimize state
 		if(e.type == PropertyNotify) {
-			if(e.xproperty.atom == xlib::wmStateProperty && e.xproperty.state == PropertyNewValue)
-				w->updateMinimized();
+			if(e.xproperty.atom == xlib::wmState && e.xproperty.state == PropertyNewValue)
+				w->updateVisibleAndMinimized();
 			continue;
 		}
 
 		// handle window close
-		if(e.type==ClientMessage && ulong(e.xclient.data.l[0])==xlib::wmDeleteMessage) {
+		if(e.type==ClientMessage && ulong(e.xclient.data.l[0])==xlib::wmDeleteWindow) {
 			if(w->_closeCallback)
 				w->_closeCallback(*w);  // VulkanWindow object might be already destroyed when returning from the callback
 			else {
@@ -5165,6 +5183,8 @@ void VulkanWindow::setWindowState(WindowState windowState)
 		assert(r == S_OK || r == DWM_E_COMPOSITIONDISABLED && "VulkanWindow::setWindowState(): The function DwmSetWindowAttribute() failed.");
 
 		break;
+	default:
+		throw runtime_error("VulkanWindow::setWindowState(): Invalid WindowState value passed as parameter.");
 	}
 
 	// if the window is leaving fullscreen, restore window animations again
@@ -5179,14 +5199,145 @@ void VulkanWindow::setWindowState(WindowState windowState)
 
 VulkanWindow::WindowState VulkanWindow::windowState() const
 {
-	if(!_xlib.window)
+	if(!_xlib.window || !_xlib.visible)
 		return WindowState::Hidden;
 
+	if(_xlib.minimized)
+		return WindowState::Minimized;
+
+	// read _NET_WM_STATE
+	unsigned char* data = nullptr;
+	Atom actualType;
+	int actualFormat;
+	unsigned long numItemsRead;
+	unsigned long numBytesAfter;
+	int r =
+		XGetWindowProperty(
+			xlib::display,  // display
+			_xlib.window,  // window
+			xlib::netWmState,  // property
+			0, ~long(0),  // long_offset, long_length
+			False,  // delete
+			AnyPropertyType, // req_type
+			&actualType,  // actual_type_return
+			&actualFormat,  // actual_format_return
+			&numItemsRead,  // nitems_return
+			&numBytesAfter,  // bytes_after_return
+			&data  // prop_return
+		);
+
+	// handle errors and exceptional state
+	if(r != Success) {
+		if(data)
+			XFree(data);
+		return WindowState::Normal;
+	}
+	if(data == nullptr)
+		return WindowState::Normal;
+
+	// look for fullscreen, maximized and minimized state
+	for(unsigned long i=0; i<numItemsRead; i++)
+		if(reinterpret_cast<unsigned long*>(data)[i] == xlib::netWmStateHidden) {
+			XFree(data);
+			return WindowState::Minimized;
+		}
+	for(unsigned long i=0; i<numItemsRead; i++)
+		if(reinterpret_cast<unsigned long*>(data)[i] == xlib::netWmStateFullscreen) {
+			XFree(data);
+			return WindowState::Fullscreen;
+		}
+	for(unsigned long i=0; i<numItemsRead; i++)
+		if(reinterpret_cast<unsigned long*>(data)[i] == xlib::netWmStateMaximizedHorz) {
+			for(unsigned long j=0; j<numItemsRead; j++)
+				if(reinterpret_cast<unsigned long*>(data)[j] == xlib::netWmStateMaximizedVert) {
+					XFree(data);
+					return WindowState::Maximized;
+				}
+		}
+
+	// return normal state
+	XFree(data);
 	return WindowState::Normal;
 }
 
 void VulkanWindow::setWindowState(WindowState windowState)
 {
+	// asserts for valid usage
+	assert(_surface && "VulkanWindow::_surface is null, indicating invalid VulkanWindow object. Call VulkanWindow::create() to initialize it.");
+	assert(_resizeCallback && "Resize callback must be set before VulkanWindow::mainLoop() call. Please, call VulkanWindow::setResizeCallback() before VulkanWindow::mainLoop().");
+	assert(_frameCallback && "Frame callback need to be set before VulkanWindow::mainLoop() call. Please, call VulkanWindow::setFrameCallback() before VulkanWindow::mainLoop().");
+
+	// hide
+	if(windowState == WindowState::Hidden) {
+		hide();
+		return;
+	}
+
+	// minimize
+	if(windowState == WindowState::Minimized) {
+		cout << "setWindowState to Minimized while visible: " << _xlib.visible << endl;
+		if(_xlib.visible) {
+			if(!_xlib.minimized) {
+				_xlib.minimized = true;
+				XIconifyWindow(xlib::display, _xlib.window, XDefaultScreen(xlib::display));
+			}
+		}
+		else {
+			_xlib.minimized = true;
+			show();
+		}
+		cout << "Returning while visible: " << _xlib.visible << endl;
+		return;
+	}
+
+	// show window
+	_xlib.minimized = false;
+	show();
+
+	// handle normal, maximized and fullscreen
+	XClientMessageEvent event{
+		ClientMessage,  // type
+		0,  // serial
+		{},  // send_event
+		0,  // display
+		_xlib.window,  // window
+		xlib::netWmState,  // message_type
+		32,  // format
+	};
+	auto updateState =
+		[](XClientMessageEvent& event, uint32_t action, uint32_t firstProperty, uint32_t secondProperty) {
+			event.data.l[0] = action;  // _NET_WM_STATE_REMOVE=0, _NET_WM_STATE_ADD=1, _NET_WM_STATE_TOGGLE=2
+			event.data.l[1] = firstProperty;
+			event.data.l[2] = secondProperty;  // it can be 0
+			event.data.l[3] = 1;  // source indication: normal application
+			XSendEvent(
+				xlib::display,  // display
+				DefaultRootWindow(xlib::display),  // w
+				False,  // propagate
+				SubstructureNotifyMask,  // event_mask
+				(XEvent*)&event  // event_send
+			);
+		};
+	switch(windowState) {
+	case WindowState::Minimized:
+		updateState(event, 1, xlib::netWmStateHidden, 0);
+		break;
+	case WindowState::Normal:
+		updateState(event, 0, xlib::netWmStateFullscreen, 0);
+		updateState(event, 0, xlib::netWmStateHidden, 0);
+		updateState(event, 0, xlib::netWmStateMaximizedHorz, xlib::netWmStateMaximizedVert);
+		break;
+	case WindowState::Maximized:
+		updateState(event, 0, xlib::netWmStateHidden, 0);
+		updateState(event, 0, xlib::netWmStateFullscreen, 0);
+		updateState(event, 1, xlib::netWmStateMaximizedHorz, xlib::netWmStateMaximizedVert);
+		break;
+	case WindowState::Fullscreen:
+		updateState(event, 0, xlib::netWmStateHidden, 0);
+		updateState(event, 1, xlib::netWmStateFullscreen, 0);
+		break;
+	default:
+	}
 }
 
 #elif defined(USE_PLATFORM_WAYLAND)

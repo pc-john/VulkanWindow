@@ -157,7 +157,6 @@ protected:
 			bool framePending;
 			bool visible;
 			bool fullyObscured;
-			bool iconVisible;
 			bool minimized;
 
 		} _xlib;
@@ -232,7 +231,7 @@ protected:
 	VkSurfaceKHR createInternal(VkInstance instance, uint32_t width, uint32_t height);
 	void updateTitle();
 	void show(void (*xdgConfigFunc)(VulkanWindow&), void (*libdecorConfigFunc)(VulkanWindow&));  // wayland-only function
-	void updateMinimized();  // xlib-only function
+	void updateVisibleAndMinimized();  // xlib-only function
 
 public:
 
