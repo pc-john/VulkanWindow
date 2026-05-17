@@ -2392,7 +2392,7 @@ void VulkanWindow::renderFrame()
 #if defined(USE_PLATFORM_WIN32)
 
 
-bool VulkanWindow::isVisible() const
+bool VulkanWindow::visible() const
 {
 	return _win32.hwnd && _win32.visible;
 }
@@ -2877,7 +2877,7 @@ void VulkanWindow::scheduleFrame()
 #elif defined(USE_PLATFORM_XLIB)
 
 
-bool VulkanWindow::isVisible() const
+bool VulkanWindow::visible() const
 {
 	return _xlib.window && _xlib.visible;
 }
@@ -3259,7 +3259,7 @@ void VulkanWindow::scheduleFrame()
 #elif defined(USE_PLATFORM_WAYLAND)
 
 
-bool VulkanWindow::isVisible() const
+bool VulkanWindow::visible() const
 {
 	return _wayland.wlSurface && (_wayland.xdgSurface || _wayland.libdecorFrame);
 }
@@ -3869,7 +3869,7 @@ uint32_t VulkanWindow::requiredExtensionCount()  { return uint32_t(requiredExten
 const char* const* VulkanWindow::requiredExtensionNames()  { return requiredExtensions().data(); }
 
 
-bool VulkanWindow::isVisible() const
+bool VulkanWindow::visible() const
 {
 	return _sdl.window && _sdl.visible;
 }
@@ -4216,7 +4216,7 @@ uint32_t VulkanWindow::requiredExtensionCount()  { return uint32_t(requiredExten
 const char* const* VulkanWindow::requiredExtensionNames()  { return requiredExtensions().data(); }
 
 
-bool VulkanWindow::isVisible() const
+bool VulkanWindow::visible() const
 {
 	return _sdl.window && _sdl.visible;
 }
@@ -4556,7 +4556,7 @@ uint32_t VulkanWindow::requiredExtensionCount()  { return uint32_t(requiredExten
 const char* const* VulkanWindow::requiredExtensionNames()  { return requiredExtensions().data(); }
 
 
-bool VulkanWindow::isVisible() const
+bool VulkanWindow::visible() const
 {
 	return _glfw.window && _glfw.visible;
 }
@@ -4698,7 +4698,7 @@ uint32_t VulkanWindow::requiredExtensionCount()  { return uint32_t(requiredExten
 const char* const* VulkanWindow::requiredExtensionNames()  { return requiredExtensions().data(); }
 
 
-bool VulkanWindow::isVisible() const
+bool VulkanWindow::visible() const
 {
 	return _qt.window && _qt.window->isVisible();
 }
@@ -5218,7 +5218,7 @@ void VulkanWindow::setWindowState(WindowState windowState)
 		hide();
 		break;
 	case WindowState::Minimized:
-		if(!isVisible())
+		if(!visible())
 
 			// show the window with appropriate settings
 			show(
@@ -5236,7 +5236,7 @@ void VulkanWindow::setWindowState(WindowState windowState)
 
 		break;
 	case WindowState::Normal:
-		if(!isVisible())
+		if(!visible())
 
 			// show the window with appropriate settings
 			show(
@@ -5266,7 +5266,7 @@ void VulkanWindow::setWindowState(WindowState windowState)
 		}
 		break;
 	case WindowState::Maximized:
-		if(!isVisible())
+		if(!visible())
 
 			// show the window with appropriate settings
 			show(
@@ -5296,7 +5296,7 @@ void VulkanWindow::setWindowState(WindowState windowState)
 		}
 		break;
 	case WindowState::Fullscreen:
-		if(!isVisible())
+		if(!visible())
 
 			// show the window with appropriate settings
 			show(
@@ -5496,7 +5496,7 @@ VulkanWindow::WindowState VulkanWindow::windowState() const
 	case Qt::WindowMinimized:   return WindowState::Minimized;
 	case Qt::WindowNoState:     return WindowState::Normal;
 	case Qt::WindowMaximized:   return WindowState::Maximized;
-	case Qt::WindowFullscreen:  return WindowState::Fullscreen;
+	case Qt::WindowFullScreen:  return WindowState::Fullscreen;
 	default: throw runtime_error("VulkanWindow::windowState(): Unknown WindowState value.");
 	}
 }
@@ -5508,7 +5508,7 @@ void VulkanWindow::setWindowState(WindowState windowState)
 	case WindowState::Minimized:  _qt.window->showMinimized(); break;
 	case WindowState::Normal:     _qt.window->showNormal(); break;
 	case WindowState::Maximized:  _qt.window->showMaximized(); break;
-	case WindowState::Fullscreen: _qt.window->showFullscreen(); break;
+	case WindowState::Fullscreen: _qt.window->showFullScreen(); break;
 	default: throw runtime_error("VulkanWindow::setWindowState(): Invalid WindowState value passed as parameter.");
 	}
 }

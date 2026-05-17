@@ -291,7 +291,7 @@ public:
 	VkSurfaceKHR surface() const;
 	uint32_t surfaceWidth() const;
 	uint32_t surfaceHeight() const;
-	bool isVisible() const;
+	bool visible() const;
 	const std::string& title() const;
 	WindowState windowState() const;
 

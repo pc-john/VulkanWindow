@@ -915,7 +915,7 @@ void App::closeWindow(VulkanWindow& w)
 
 	// exit if all windows are closed
 	for(VulkanWindow& wi : windowList)
-		if(wi.isVisible())
+		if(wi.visible())
 			return;
 	VulkanWindow::exitMainLoop();
 }
@@ -926,18 +926,51 @@ void App::key(VulkanWindow& w, VulkanWindow::KeyState keyState, VulkanWindow::Sc
 	if(keyState != VulkanWindow::KeyState::Pressed)
 		return;
 
-	if(key == VulkanWindow::KeyCode::F)
+	if(key == VulkanWindow::KeyCode::F)  // Fullscreen - make the current window fullscreen
 		w.showFullscreen();
-	else if(key == VulkanWindow::KeyCode::M)
+	else if(key == VulkanWindow::KeyCode::M)  // Maximize - maximize the current window
 		w.showMaximized();
-	else if(key == VulkanWindow::KeyCode::N)
+	else if(key == VulkanWindow::KeyCode::N)  // Normal - make the current window shown as normal
 		w.showNormal();
-	else if(key == VulkanWindow::KeyCode::Z)
+	else if(key == VulkanWindow::KeyCode::Z)  // minimiZe - minimize the current window
 		w.showMinimized();
-	else if(key == VulkanWindow::KeyCode::S)
+	else if(key == VulkanWindow::KeyCode::S)  // Show - call show on the current window
 		w.show();
-	else if(key == VulkanWindow::KeyCode::H)
+	else if(key == VulkanWindow::KeyCode::H)  // Hide - hide the current window
 		w.hide();
+	else if(key == VulkanWindow::KeyCode::G) {  // Get - get window state of all windows
+		cout << "Window states:" << endl;
+		for(size_t i=0,c=windowList.size(); i<c; i++) {
+			Window& wi = windowList[i];
+			cout << i << ": ";
+			switch(wi.windowState()) {
+			case VulkanWindow::WindowState::Hidden:     cout << "Hidden"; break;
+			case VulkanWindow::WindowState::Minimized:  cout << "Minimized"; break;
+			case VulkanWindow::WindowState::Normal:     cout << "Normal"; break;
+			case VulkanWindow::WindowState::Maximized:  cout << "Maximized"; break;
+			case VulkanWindow::WindowState::Fullscreen: cout << "Fullscreen"; break;
+			default: cout << "Unknown value";
+			}
+			cout << endl;
+		}
+	}
+	else if(key == VulkanWindow::KeyCode::A) {  // All - perform some debugging action on all windows
+		for(size_t i=0,c=windowList.size(); i<c; i++) {
+			Window& wi = windowList[i];
+		#if 1
+			wi.setWindowState(VulkanWindow::WindowState::Minimized);
+		#else
+			wi.show();
+		#endif
+		}
+	}
+	else if(key == VulkanWindow::KeyCode::V) {  // Visible - get visible state of all windows
+		cout << "Window visible states:" << endl;
+		for(size_t i=0,c=windowList.size(); i<c; i++) {
+			Window& wi = windowList[i];
+			cout << i << ": " << wi.visible() << endl;
+		}
+	}
 }
 
 
@@ -976,7 +1009,7 @@ int main(int argc, char* argv[])
 		for(size_t i=0,c=app.windowList.size(); i<c; i++) {
 			Window& w = app.windowList[i];
 			cout << "Window " << i << ": ";
-			if(w.isVisible())  cout << "visible, ";
+			if(w.visible())  cout << "visible, ";
 			else  cout << "not visible, ";
 			switch(w.windowState()) {
 			case VulkanWindow::WindowState::Hidden:     cout << "hidden"; break;

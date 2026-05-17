@@ -270,17 +270,17 @@ void App::init()
 	windowList.emplace_back(instance, 800, 600, appName);
 	windowList.emplace_back(instance, 800, 600, appName);
 
-	// test for isVisible() returning false
+	// test for visible() returning false
 	{
 		VulkanWindow tmp;
-		if(tmp.isVisible())
-			throw runtime_error("VulkanWindow::isVisible() did not return false immediately after VulkanWindow constructor.");
+		if(tmp.visible())
+			throw runtime_error("VulkanWindow::visible() did not return false immediately after VulkanWindow constructor.");
 		tmp.create(instance, 800, 600, appName);
-		if(tmp.isVisible())
-			throw runtime_error("VulkanWindow::isVisible() did not return false immediately after VulkanWindow::create().");
+		if(tmp.visible())
+			throw runtime_error("VulkanWindow::visible() did not return false immediately after VulkanWindow::create().");
 		tmp.hide();
-		if(tmp.isVisible())
-			throw runtime_error("VulkanWindow::isVisible() did not return false immediately after VulkanWindow::hide().");
+		if(tmp.visible())
+			throw runtime_error("VulkanWindow::visible() did not return false immediately after VulkanWindow::hide().");
 	}
 
 	// test for non-initialized window and for move constructors
@@ -1022,7 +1022,7 @@ int main(int argc, char* argv[])
 #if 0
 						window.hide();
 						for(Window& w : app.windowList)
-							if(w.isVisible())
+							if(w.visible())
 								return;
 						VulkanWindow::exitMainLoop();
 #elif 0
@@ -1041,7 +1041,7 @@ int main(int argc, char* argv[])
 							// test of hide()
 							counter--;
 							window.hide();
-							if(window.isVisible())
+							if(window.visible())
 								throw runtime_error("VulkanWindow::hide() does not work properly.");
 
 							// test of move operators, doing windowList order reverse
@@ -1058,7 +1058,7 @@ int main(int argc, char* argv[])
 							counter = -1;
 							for(auto& w : app.windowList) {
 								w.show();
-								if(!w.isVisible())
+								if(!w.visible())
 									throw runtime_error("VulkanWindow::show() does not work properly.");
 							}
 							return;
@@ -1083,17 +1083,17 @@ int main(int argc, char* argv[])
 				)
 			);
 
-			// test of hide()/show()/isVisible()
+			// test of hide()/show()/visible()
 			w.show();
 #if 1
-			if(!w.isVisible())
-				throw runtime_error("VulkanWindow::isVisible() did not returned true immediately after VulkanWindow::show().");
+			if(!w.visible())
+				throw runtime_error("VulkanWindow::visible() did not returned true immediately after VulkanWindow::show().");
 			w.hide();
-			if(w.isVisible())
+			if(w.visible())
 				throw runtime_error("VulkanWindow::hide() does not work properly.");
 			w.show();
-			if(!w.isVisible())
-				throw runtime_error("VulkanWindow::isVisible() did not returned true immediately after VulkanWindow::show().");
+			if(!w.visible())
+				throw runtime_error("VulkanWindow::visible() did not returned true immediately after VulkanWindow::show().");
 #endif
 		}
 
