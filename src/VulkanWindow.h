@@ -158,6 +158,7 @@ protected:
 			bool visible;
 			bool fullyObscured;
 			bool minimized;
+			bool savedFullscreenState;  //< set before window is hidden and used to restore fullscreen state on window show
 
 		} _xlib;
 

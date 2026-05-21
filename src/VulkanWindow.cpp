@@ -50,7 +50,7 @@
 # define VK_VERSION_1_0 1  // to enable Vulkan-related glfw functions
 typedef struct VkPhysicalDevice_T* VkPhysicalDevice;
 struct VkAllocationCallbacks;
-enum VkResult;
+enum VkResult : uint32_t;
 # include <GLFW/glfw3.h>
 # include <cmath>
 #elif defined(USE_PLATFORM_QT)
@@ -2004,6 +2004,7 @@ VkSurfaceKHR VulkanWindow::createInternal(VkInstance instance, uint32_t width, u
 	_xlib.visible = false;
 	_xlib.fullyObscured = false;
 	_xlib.minimized = false;
+	_xlib.savedFullscreenState = false;
 
 	// create window
 	XSetWindowAttributes attr;
@@ -2911,11 +2912,35 @@ void VulkanWindow::show()
 	// show window
 	_xlib.visible = true;
 	_xlib.fullyObscured = false;
-	XMapWindow(xlib::display, _xlib.window);  // shows the window; MapNotify event will delivered later
+	XMapWindow(xlib::display, _xlib.window);  // shows the window; MapNotify event will delivered afterwards
 	if(_xlib.minimized)
-		XIconifyWindow(xlib::display, _xlib.window, XDefaultScreen(xlib::display));  // makes only taskbar icon visible; PropertyNotify event for WM_STATE change will be delivered later
+		XIconifyWindow(xlib::display, _xlib.window, XDefaultScreen(xlib::display));  // makes only taskbar icon visible; PropertyNotify event for WM_STATE change will be delivered afterwards
 	else
 		scheduleFrame();
+
+	// restore fullscreen state
+	if(_xlib.savedFullscreenState) {
+		XClientMessageEvent event{
+			ClientMessage,  // type
+			0,  // serial
+			{},  // send_event
+			0,  // display
+			_xlib.window,  // window
+			xlib::netWmState,  // message_type
+			32,  // format
+		};
+		event.data.l[0] = 1;  // _NET_WM_STATE_REMOVE=0, _NET_WM_STATE_ADD=1, _NET_WM_STATE_TOGGLE=2
+		event.data.l[1] = xlib::netWmStateFullscreen;  // first property to set
+		event.data.l[2] = 0;  // no second property to set
+		event.data.l[3] = 1;  // source indication: normal application
+		XSendEvent(
+			xlib::display,  // display
+			DefaultRootWindow(xlib::display),  // w
+			False,  // propagate
+			SubstructureNotifyMask,  // event_mask
+			(XEvent*)&event  // event_send
+		);
+	}
 }
 
 
@@ -2939,6 +2964,44 @@ void VulkanWindow::hide()
 	XEvent tmp;
 	while(XCheckTypedWindowEvent(xlib::display, _xlib.window, Expose, &tmp) == True);
 	_xlib.framePending = false;
+
+	// save fullscreen state
+	unsigned char* data = nullptr;
+	Atom actualType;
+	int actualFormat;
+	unsigned long numItemsRead;
+	unsigned long numBytesAfter;
+	int r =
+		XGetWindowProperty(
+			xlib::display,  // display
+			_xlib.window,  // window
+			xlib::netWmState,  // property
+			0, ~long(0),  // long_offset, long_length
+			False,  // delete
+			AnyPropertyType, // req_type
+			&actualType,  // actual_type_return
+			&actualFormat,  // actual_format_return
+			&numItemsRead,  // nitems_return
+			&numBytesAfter,  // bytes_after_return
+			&data  // prop_return
+		);
+	if(r != Success) {
+		if(data)
+			XFree(data);
+		_xlib.savedFullscreenState = false;
+	}
+	else if(data == nullptr)
+		_xlib.savedFullscreenState = false;
+	else {
+		for(unsigned long i=0; i<numItemsRead; i++)
+			if(reinterpret_cast<unsigned long*>(data)[i] == xlib::netWmStateFullscreen) {
+				XFree(data);
+				_xlib.savedFullscreenState = true;
+				return;
+			}
+		XFree(data);
+		_xlib.savedFullscreenState = false;
+	}
 }
 
 
@@ -5336,7 +5399,8 @@ void VulkanWindow::setWindowState(WindowState windowState)
 		updateState(event, 0, xlib::netWmStateHidden, 0);
 		updateState(event, 1, xlib::netWmStateFullscreen, 0);
 		break;
-	default:
+	default:;
+		throw runtime_error("VulkanWindow::setWindowState(): Invalid WindowState value passed as parameter.");
 	}
 }
 
