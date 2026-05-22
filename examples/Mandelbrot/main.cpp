@@ -959,7 +959,7 @@ void App::mouseWheel(VulkanWindow&, float wheelX, float wheelY, const VulkanWind
 
 	float rx = s.posX / window.surfaceWidth();
 	float ry = s.posY / window.surfaceHeight();
-	valueGradient *= powf(0.9f, wheelY / 120);
+	valueGradient *= powf(0.9f, wheelY);
 	setView(s.posX, s.posY, minX*(1.f-rx) + maxX*rx, minY*(1.f-ry) + maxY*ry);
 	window.scheduleFrame();
 }
