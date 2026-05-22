@@ -5220,32 +5220,33 @@ void VulkanWindow::setWindowState(WindowState windowState)
 	case WindowState::Minimized:  ShowWindow(HWND(_win32.hwnd), SW_SHOWMINIMIZED); _win32.visible = true; break;
 	case WindowState::Normal:     ShowWindow(HWND(_win32.hwnd), SW_SHOWNORMAL); break;
 	case WindowState::Maximized:  ShowWindow(HWND(_win32.hwnd), SW_SHOWMAXIMIZED); _win32.visible = true; break;
-	case WindowState::Fullscreen:
+	case WindowState::Fullscreen: {
 
-		// store window placement
-		if(_win32.fullscreenSavedPlacement == nullptr) {
-			_win32.fullscreenSavedPlacement = malloc(sizeof(WINDOWPLACEMENT));
-			static_cast<WINDOWPLACEMENT*>(_win32.fullscreenSavedPlacement)->length = sizeof(WINDOWPLACEMENT);
-			if(GetWindowPlacement(HWND(_win32.hwnd), static_cast<WINDOWPLACEMENT*>(_win32.fullscreenSavedPlacement)) == 0)
-				throw runtime_error("VulkanWindow::setWindowState(): The function GetWindowPlacement() failed.");
+			// store window placement
+			if(_win32.fullscreenSavedPlacement == nullptr) {
+				_win32.fullscreenSavedPlacement = malloc(sizeof(WINDOWPLACEMENT));
+				static_cast<WINDOWPLACEMENT*>(_win32.fullscreenSavedPlacement)->length = sizeof(WINDOWPLACEMENT);
+				if(GetWindowPlacement(HWND(_win32.hwnd), static_cast<WINDOWPLACEMENT*>(_win32.fullscreenSavedPlacement)) == 0)
+					throw runtime_error("VulkanWindow::setWindowState(): The function GetWindowPlacement() failed.");
+			}
+
+			// disable window animations
+			HRESULT r = DwmSetWindowAttribute(HWND(_win32.hwnd), DWMWA_TRANSITIONS_FORCEDISABLED, &(const BOOL&)BOOL(TRUE), sizeof(BOOL));
+			assert(r == S_OK || r == DWM_E_COMPOSITIONDISABLED && "VulkanWindow::setWindowState(): The function DwmSetWindowAttribute() failed.");
+
+			// show window maximized and with the new style
+			ShowWindow(HWND(_win32.hwnd), SW_SHOWNORMAL);  // this makes top-left menu not disappear if the window was never shown yet
+			SetWindowLong(HWND(_win32.hwnd), GWL_STYLE, WS_POPUP);
+			SetWindowLong(HWND(_win32.hwnd), GWL_EXSTYLE, 0);
+			ShowWindow(HWND(_win32.hwnd), SW_SHOWMAXIMIZED);
+			_win32.visible = true;
+
+			// enable window animations
+			r = DwmSetWindowAttribute(HWND(_win32.hwnd), DWMWA_TRANSITIONS_FORCEDISABLED, &(const BOOL&)BOOL(FALSE), sizeof(BOOL));
+			assert(r == S_OK || r == DWM_E_COMPOSITIONDISABLED && "VulkanWindow::setWindowState(): The function DwmSetWindowAttribute() failed.");
+
+			break;
 		}
-
-		// disable window animations
-		HRESULT r = DwmSetWindowAttribute(HWND(_win32.hwnd), DWMWA_TRANSITIONS_FORCEDISABLED, &(const BOOL&)BOOL(TRUE), sizeof(BOOL));
-		assert(r == S_OK || r == DWM_E_COMPOSITIONDISABLED && "VulkanWindow::setWindowState(): The function DwmSetWindowAttribute() failed.");
-
-		// show window maximized and with the new style
-		ShowWindow(HWND(_win32.hwnd), SW_SHOWNORMAL);  // this makes top-left menu not disappear if the window was never shown yet
-		SetWindowLong(HWND(_win32.hwnd), GWL_STYLE, WS_POPUP);
-		SetWindowLong(HWND(_win32.hwnd), GWL_EXSTYLE, 0);
-		ShowWindow(HWND(_win32.hwnd), SW_SHOWMAXIMIZED);
-		_win32.visible = true;
-
-		// enable window animations
-		r = DwmSetWindowAttribute(HWND(_win32.hwnd), DWMWA_TRANSITIONS_FORCEDISABLED, &(const BOOL&)BOOL(FALSE), sizeof(BOOL));
-		assert(r == S_OK || r == DWM_E_COMPOSITIONDISABLED && "VulkanWindow::setWindowState(): The function DwmSetWindowAttribute() failed.");
-
-		break;
 	default:
 		throw runtime_error("VulkanWindow::setWindowState(): Invalid WindowState value passed as parameter.");
 	}
@@ -5694,6 +5695,8 @@ void VulkanWindow::setWindowState(WindowState windowState)
 			const GLFWvidmode* mode = glfwGetVideoMode(m);
 			glfwSetWindowMonitor(_glfw.window, m, 0, 0, mode->width, mode->height, mode->refreshRate);
 			show();
+			glfwFocusWindow(_glfw.window);  // glfw 3.4 (released on 2024-02-23) does not focus the window on Windows, so we need to do it ourselves;
+			                                // to reproduce it, just show more windows at once while making one of them shown fullscreen
 			break;
 		}
 	default: throw runtime_error("VulkanWindow::setWindowState(): Invalid WindowState value passed as parameter.");
