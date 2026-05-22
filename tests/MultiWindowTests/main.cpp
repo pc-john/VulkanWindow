@@ -147,6 +147,7 @@ public:
 	void init();
 	void resize(VulkanWindow& window, uint32_t& widthToBeSet, uint32_t& heightToBeSet);
 	void frame(VulkanWindow& window);
+	void key(VulkanWindow& window, VulkanWindow::KeyState keyState, VulkanWindow::ScanCode scanCode, VulkanWindow::KeyCode key);
 
 	// Vulkan instance must be destructed as the last Vulkan handle.
 	// It is probably good idea to destroy it after the display connection.
@@ -995,6 +996,24 @@ void App::frame(VulkanWindow& w)
 }
 
 
+void App::key(VulkanWindow& w, VulkanWindow::KeyState keyState, VulkanWindow::ScanCode scanCode, VulkanWindow::KeyCode key)
+{
+	if(keyState != VulkanWindow::KeyState::Pressed)
+		return;
+
+	if(key == VulkanWindow::KeyCode::F)  // Fullscreen - make the current window fullscreen
+		w.showFullscreen();
+	else if(key == VulkanWindow::KeyCode::M)  // Maximize - maximize the current window
+		w.showMaximized();
+	else if(key == VulkanWindow::KeyCode::N)  // Normal - make the current window shown as normal
+		w.showNormal();
+	else if(key == VulkanWindow::KeyCode::Z)  // minimiZe - minimize the current window
+		w.showMinimized();
+	else if(key == VulkanWindow::KeyCode::H)  // Hide - hide the current window
+		w.hide();
+}
+
+
 int main(int argc, char* argv[])
 {
 	// catch exceptions
@@ -1016,6 +1035,7 @@ int main(int argc, char* argv[])
 			w.setFrameCallback(
 				bind(&App::frame, &app, placeholders::_1)
 			);
+			w.setKeyCallback(bind(&App::key, &app, placeholders::_1, placeholders::_2, placeholders::_3, placeholders::_4));
 			w.setCloseCallback(
 				bind(
 					[](VulkanWindow& window, App& app){

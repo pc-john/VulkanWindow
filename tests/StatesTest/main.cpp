@@ -934,10 +934,30 @@ void App::key(VulkanWindow& w, VulkanWindow::KeyState keyState, VulkanWindow::Sc
 		w.showNormal();
 	else if(key == VulkanWindow::KeyCode::Z)  // minimiZe - minimize the current window
 		w.showMinimized();
-	else if(key == VulkanWindow::KeyCode::S)  // Show - call show on the current window
+	else if(key == VulkanWindow::KeyCode::S)  // Show - call show on the current window (just not much sense to call it on visible window)
 		w.show();
 	else if(key == VulkanWindow::KeyCode::H)  // Hide - hide the current window
 		w.hide();
+	else if(scanCode == VulkanWindow::ScanCode::One)  // show first window
+		windowList[0].show();
+	else if(scanCode == VulkanWindow::ScanCode::Two)  // show second window
+		windowList[1].show();
+	else if(scanCode == VulkanWindow::ScanCode::Three)  // show third window
+		windowList[2].show();
+	else if(scanCode == VulkanWindow::ScanCode::Four)  // show fourth window
+		windowList[3].show();
+	else if(scanCode == VulkanWindow::ScanCode::Five)  // show fifth window
+		windowList[4].show();
+	else if(scanCode == VulkanWindow::ScanCode::Six)  // hide first window
+		windowList[0].hide();
+	else if(scanCode == VulkanWindow::ScanCode::Seven)  // hide second window
+		windowList[1].hide();
+	else if(scanCode == VulkanWindow::ScanCode::Eight)  // hide third window
+		windowList[2].hide();
+	else if(scanCode == VulkanWindow::ScanCode::Nine)  // hide fourth window
+		windowList[3].hide();
+	else if(scanCode == VulkanWindow::ScanCode::Zero)  // hide fifth window
+		windowList[4].hide();
 	else if(key == VulkanWindow::KeyCode::G) {  // Get - get window state of all windows
 		cout << "Window states:" << endl;
 		for(size_t i=0,c=windowList.size(); i<c; i++) {
