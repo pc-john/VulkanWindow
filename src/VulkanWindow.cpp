@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: MIT-0
 
 #include "VulkanWindow.h"
-#if defined(USE_PLATFORM_WIN32)
+#if defined(VULKAN_WINDOW_WIN32)
 # ifndef NOMINMAX
 #  define NOMINMAX  // avoid the definition of min and max macros by windows.h
 # endif
@@ -16,10 +16,10 @@
 # include <type_traits>
 # include <dwmapi.h>  // DwmSetWindowAttribute() (since Windows Vista)
 # pragma comment(lib, "dwmapi.lib")  // DwmSetWindowAttribute()
-#elif defined(USE_PLATFORM_XLIB)
+#elif defined(VULKAN_WINDOW_XLIB)
 # include <X11/Xutil.h>
 # include <map>
-#elif defined(USE_PLATFORM_WAYLAND)
+#elif defined(VULKAN_WINDOW_WAYLAND)
 # include "xdg-shell-client-protocol.h"
 # include "xdg-decoration-client-protocol.h"
 # include <wayland-cursor.h>
@@ -29,7 +29,7 @@
 # include <sys/mman.h>
 # include <unistd.h>
 # include <map>
-#elif defined(USE_PLATFORM_SDL3)
+#elif defined(VULKAN_WINDOW_SDL3)
 # include <SDL3/SDL_error.h>
 # include <SDL3/SDL_events.h>
 # include <SDL3/SDL_hints.h>
@@ -40,12 +40,12 @@
 # include <SDL3/SDL_timer.h>
 # include <SDL3/SDL_video.h>
 # include <SDL3/SDL_vulkan.h>
-#elif defined(USE_PLATFORM_SDL2)
+#elif defined(VULKAN_WINDOW_SDL2)
 # include "SDL.h"
 # include "SDL_vulkan.h"
 # include <cmath>
 # include <memory>
-#elif defined(USE_PLATFORM_GLFW)
+#elif defined(VULKAN_WINDOW_GLFW)
 # define GLFW_INCLUDE_NONE  // do not include OpenGL headers
 # define VK_VERSION_1_0 1  // to enable Vulkan-related glfw functions
 typedef struct VkPhysicalDevice_T* VkPhysicalDevice;
@@ -53,7 +53,7 @@ struct VkAllocationCallbacks;
 enum VkResult : uint32_t;
 # include <GLFW/glfw3.h>
 # include <cmath>
-#elif defined(USE_PLATFORM_QT)
+#elif defined(VULKAN_WINDOW_QT)
 # include <QGuiApplication>
 # include <QWindow>
 # include <QVulkanInstance>
@@ -95,7 +95,7 @@ constexpr const VkStructureType VK_STRUCTURE_TYPE_WIN32_SURFACE_CREATE_INFO_KHR 
 constexpr const VkStructureType VK_STRUCTURE_TYPE_XLIB_SURFACE_CREATE_INFO_KHR = VkStructureType(1000004000);
 constexpr const VkStructureType VK_STRUCTURE_TYPE_WAYLAND_SURFACE_CREATE_INFO_KHR = VkStructureType(1000006000);
 #endif
-#if defined(USE_PLATFORM_WIN32)
+#if defined(VULKAN_WINDOW_WIN32)
 struct VkWin32SurfaceCreateInfoKHR {
 	VkStructureType   sType;
 	const void*       pNext;
@@ -104,7 +104,7 @@ struct VkWin32SurfaceCreateInfoKHR {
 	HWND              hwnd;
 };
 typedef VkResult (VKAPI_PTR *PFN_vkCreateWin32SurfaceKHR)(VkInstance instance, const VkWin32SurfaceCreateInfoKHR* pCreateInfo, const void* pAllocator, VkSurfaceKHR* pSurface);
-#elif defined(USE_PLATFORM_XLIB)
+#elif defined(VULKAN_WINDOW_XLIB)
 struct VkXlibSurfaceCreateInfoKHR {
 	VkStructureType   sType;
 	const void*       pNext;
@@ -113,7 +113,7 @@ struct VkXlibSurfaceCreateInfoKHR {
 	Window            window;
 };
 typedef VkResult (VKAPI_PTR *PFN_vkCreateXlibSurfaceKHR)(VkInstance instance, const VkXlibSurfaceCreateInfoKHR* pCreateInfo, const void* pAllocator, VkSurfaceKHR* pSurface);
-#elif defined(USE_PLATFORM_WAYLAND)
+#elif defined(VULKAN_WINDOW_WAYLAND)
 struct VkWaylandSurfaceCreateInfoKHR {
 	VkStructureType      sType;
 	const void*          pNext;
@@ -128,7 +128,7 @@ typedef void (VKAPI_PTR *PFN_vkDestroySurfaceKHR)(VkInstance instance, VkSurface
 
 // xcbcommon types and funcs
 // (we avoid dependency on include xkbcommon/xkbcommon.h to lessen VulkanWindow dependencies)
-#if defined(USE_PLATFORM_XLIB)
+#if defined(VULKAN_WINDOW_XLIB)
 typedef uint32_t xkb_keysym_t;
 extern "C" uint32_t xkb_keysym_to_utf32(xkb_keysym_t keysym);
 #endif
@@ -136,7 +136,7 @@ extern "C" uint32_t xkb_keysym_to_utf32(xkb_keysym_t keysym);
 // xkb type and function definitions
 // (we avoid dependency on include xkbcommon/xkbcommon.h to lessen VulkanWindow dependencies;
 // instead we replace the include by the following enums and structs)
-#if defined(USE_PLATFORM_WAYLAND)
+#if defined(VULKAN_WINDOW_WAYLAND)
 enum xkb_context_flags {
 	XKB_CONTEXT_NO_FLAGS = 0,
 };
@@ -170,7 +170,7 @@ extern "C" void xkb_context_unref(struct xkb_context* context);
 // libdecor enums and structs
 // (we avoid dependency on include libdecor-0/libdecor.h to lessen VulkanWindow dependencies;
 // instead we replace the include by the following enums and structs)
-#if defined(USE_PLATFORM_WAYLAND)
+#if defined(VULKAN_WINDOW_WAYLAND)
 enum libdecor_error {
 	LIBDECOR_ERROR_COMPOSITOR_INCOMPATIBLE,
 	LIBDECOR_ERROR_INVALID_FRAME_CONFIGURATION,
@@ -246,9 +246,9 @@ using namespace std;
 
 class VulkanWindowPrivate : public VulkanWindow {
 public:
-#if defined(USE_PLATFORM_WIN32)
+#if defined(VULKAN_WINDOW_WIN32)
 	static LRESULT wndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) noexcept;
-#elif defined(USE_PLATFORM_WAYLAND)
+#elif defined(VULKAN_WINDOW_WAYLAND)
 	static void registryListenerGlobal(void*, wl_registry* registry, uint32_t name, const char* interface, uint32_t version);
 	static void registryListenerGlobalRemove(void*, wl_registry*, uint32_t);
 	static void xdgWmBaseListenerPing(void*, xdg_wm_base* xdg, uint32_t serial);
@@ -283,7 +283,7 @@ public:
 //
 // global variables for various platforms
 //
-#if defined(USE_PLATFORM_WIN32)
+#if defined(VULKAN_WINDOW_WIN32)
 
 struct win32 {
 
@@ -309,7 +309,7 @@ std::vector<const char*>& VulkanWindow::appendRequiredExtensions(std::vector<con
 uint32_t VulkanWindow::requiredExtensionCount()  { return uint32_t(win32::requiredInstanceExtensions.size()); }
 const char* const* VulkanWindow::requiredExtensionNames()  { return win32::requiredInstanceExtensions.data(); }
 
-#elif defined(USE_PLATFORM_XLIB)
+#elif defined(VULKAN_WINDOW_XLIB)
 
 struct xlib {
 
@@ -355,7 +355,7 @@ std::vector<const char*>& VulkanWindow::appendRequiredExtensions(std::vector<con
 uint32_t VulkanWindow::requiredExtensionCount()  { return uint32_t(xlib::requiredInstanceExtensions.size()); }
 const char* const* VulkanWindow::requiredExtensionNames()  { return xlib::requiredInstanceExtensions.data(); }
 
-#elif defined(USE_PLATFORM_WAYLAND)
+#elif defined(VULKAN_WINDOW_WAYLAND)
 
 struct wayland {
 
@@ -421,7 +421,7 @@ std::vector<const char*>& VulkanWindow::appendRequiredExtensions(std::vector<con
 uint32_t VulkanWindow::requiredExtensionCount()  { return uint32_t(wayland::requiredInstanceExtensions.size()); }
 const char* const* VulkanWindow::requiredExtensionNames()  { return wayland::requiredInstanceExtensions.data(); }
 
-#elif defined(USE_PLATFORM_SDL3) || defined(USE_PLATFORM_SDL2)
+#elif defined(VULKAN_WINDOW_SDL3) || defined(VULKAN_WINDOW_SDL2)
 
 struct sdl {
 
@@ -429,13 +429,13 @@ struct sdl {
 	static inline bool initialized = false;
 	static inline bool running;
 	static inline constexpr const char* windowPointerName = "VulkanWindow";
-#if defined(USE_PLATFORM_SDL3)
+#if defined(VULKAN_WINDOW_SDL3)
 	static inline vector<const char*> requiredInstanceExtensions;
 #endif
 
 };
 
-#elif defined(USE_PLATFORM_GLFW)
+#elif defined(VULKAN_WINDOW_GLFW)
 
 struct glfw {
 
@@ -448,7 +448,7 @@ struct glfw {
 
 };
 
-#elif defined(USE_PLATFORM_QT)
+#elif defined(VULKAN_WINDOW_QT)
 
 // QtRenderingWindow is customized QWindow class for Vulkan rendering
 class QtRenderingWindow : public QWindow {
@@ -486,7 +486,7 @@ struct qt {
 //
 // global functions for various platforms
 //
-#if defined(USE_PLATFORM_WIN32)
+#if defined(VULKAN_WINDOW_WIN32)
 
 // Win32 UTF-8 string to wstring conversion
 static wstring utf8toWString(const string& s)
@@ -581,7 +581,7 @@ static void initKeyConversionTable()
 	}
 }
 
-#elif defined(USE_PLATFORM_WAYLAND)
+#elif defined(VULKAN_WINDOW_WAYLAND)
 
 // listeners
 static const wl_registry_listener registryListener{
@@ -670,7 +670,7 @@ static void waitAllSyncEvents(unsigned& numSyncEventsOnTheFly)
 			throw runtime_error("wl_display_dispatch() failed.");
 }
 
-#elif defined(USE_PLATFORM_GLFW)
+#elif defined(VULKAN_WINDOW_GLFW)
 
 // GLFW error handling
 static void throwError(const string& funcName)
@@ -702,7 +702,7 @@ static bool canUpdateSavedGeometry(GLFWwindow* w)
 
 
 
-#if defined(USE_PLATFORM_WIN32) || (defined(USE_PLATFORM_GLFW) && defined(_WIN32)) || (defined(USE_PLATFORM_QT) && defined(_WIN32))
+#if defined(VULKAN_WINDOW_WIN32) || (defined(VULKAN_WINDOW_GLFW) && defined(_WIN32)) || (defined(VULKAN_WINDOW_QT) && defined(_WIN32))
 
 static const VulkanWindow::ScanCode scanCodeConversionTable[512] = {
 	// normal keys:
@@ -833,8 +833,8 @@ static VulkanWindow::ScanCode translateScanCode(int nativeScanCode)
 #endif
 
 
-#if defined(USE_PLATFORM_SDL3) || defined(USE_PLATFORM_SDL2)
-#if defined(USE_PLATFORM_SDL3)
+#if defined(VULKAN_WINDOW_SDL3) || defined(VULKAN_WINDOW_SDL2)
+#if defined(VULKAN_WINDOW_SDL3)
 static const VulkanWindow::ScanCode scanCodeConversionTable[SDL_SCANCODE_COUNT] = {
 #else
 static const VulkanWindow::ScanCode scanCodeConversionTable[SDL_NUM_SCANCODES] = {
@@ -919,7 +919,7 @@ static VulkanWindow::ScanCode translateScanCode(int sdlScanCode)
 
 void VulkanWindow::init()
 {
-#if defined(USE_PLATFORM_WIN32)
+#if defined(VULKAN_WINDOW_WIN32)
 
 	// handle multiple init attempts
 	if(win32::windowClass)
@@ -952,7 +952,7 @@ void VulkanWindow::init()
 	// any layout change since application start is reported this way)
 	initKeyConversionTable();
 
-#elif defined(USE_PLATFORM_XLIB)
+#elif defined(VULKAN_WINDOW_XLIB)
 
 	if(xlib::display)
 		return;
@@ -966,11 +966,11 @@ void VulkanWindow::init()
 	// get atoms
 	xlib::initAtoms();
 
-#elif defined(USE_PLATFORM_WAYLAND)
+#elif defined(VULKAN_WINDOW_WAYLAND)
 
 	init(nullptr);
 
-#elif defined(USE_PLATFORM_SDL3)
+#elif defined(VULKAN_WINDOW_SDL3)
 
 	// handle multiple init attempts
 	if(sdl::initialized)
@@ -990,7 +990,7 @@ void VulkanWindow::init()
 	if(!SDL_Vulkan_LoadLibrary(nullptr))
 		throw runtime_error(string("VulkanWindow: SDL_Vulkan_LoadLibrary(nullptr) function failed. Error details: ") + SDL_GetError());
 
-#elif defined(USE_PLATFORM_SDL2)
+#elif defined(VULKAN_WINDOW_SDL2)
 
 	// handle multiple init attempts
 	if(sdl::initialized)
@@ -1011,14 +1011,14 @@ void VulkanWindow::init()
 	if(SDL_Vulkan_LoadLibrary(nullptr) != 0)
 		throw runtime_error(string("VulkanWindow: SDL_Vulkan_LoadLibrary(nullptr) function failed. Error details: ") + SDL_GetError());
 
-#elif defined(USE_PLATFORM_GLFW)
+#elif defined(VULKAN_WINDOW_GLFW)
 
 	// initialize GLFW
 	// (it is safe to call glfwInit() multiple times)
 	if(!glfwInit())
 		throwError("glfwInit");
 
-#elif defined(USE_PLATFORM_QT)
+#elif defined(VULKAN_WINDOW_QT)
 
 	if(qt::qGuiApplication)
 		return;
@@ -1061,7 +1061,7 @@ void VulkanWindow::init()
 
 void VulkanWindow::init(void* data)
 {
-#if defined(USE_PLATFORM_XLIB)
+#if defined(VULKAN_WINDOW_XLIB)
 
 	// use data as Display* handle
 
@@ -1088,7 +1088,7 @@ void VulkanWindow::init(void* data)
 	// get atoms
 	xlib::initAtoms();
 
-#elif defined(USE_PLATFORM_WAYLAND)
+#elif defined(VULKAN_WINDOW_WAYLAND)
 
 	// use data as wl_display* handle
 
@@ -1237,7 +1237,7 @@ void VulkanWindow::init(void* data)
 	if(wl_display_roundtrip(wayland::display) == -1)
 		throw runtime_error("wl_display_roundtrip() failed.");
 
-#elif defined(USE_PLATFORM_QT)
+#elif defined(VULKAN_WINDOW_QT)
 
 	// use data as pointer to
 	// tuple<QGuiApplication*,QVulkanInstance*>
@@ -1267,7 +1267,7 @@ void VulkanWindow::init(void* data)
 }
 
 
-#if defined(USE_PLATFORM_QT)
+#if defined(VULKAN_WINDOW_QT)
 
 // use argc and argv
 // for QGuiApplication initialization
@@ -1295,7 +1295,7 @@ void VulkanWindow::init(int&, char*[])
 
 void VulkanWindow::finalize() noexcept
 {
-#if defined(USE_PLATFORM_WIN32)
+#if defined(VULKAN_WINDOW_WIN32)
 
 	// release resources
 	// (do not throw in the finalization code,
@@ -1310,7 +1310,7 @@ void VulkanWindow::finalize() noexcept
 		win32::windowClass = 0;
 	}
 
-#elif defined(USE_PLATFORM_XLIB)
+#elif defined(VULKAN_WINDOW_XLIB)
 
 	if(xlib::display) {
 		if(!xlib::externalDisplayHandle)
@@ -1319,7 +1319,7 @@ void VulkanWindow::finalize() noexcept
 		xlib::vulkanWindowMap.clear();
 	}
 
-#elif defined(USE_PLATFORM_WAYLAND)
+#elif defined(VULKAN_WINDOW_WAYLAND)
 
 	if(wayland::pointer) {
 		wl_pointer_release(wayland::pointer);
@@ -1375,7 +1375,7 @@ void VulkanWindow::finalize() noexcept
 	wayland::xdgWmBase = nullptr;
 	wayland::zxdgDecorationManagerV1 = nullptr;
 
-#elif defined(USE_PLATFORM_SDL3) || defined(USE_PLATFORM_SDL2)
+#elif defined(VULKAN_WINDOW_SDL3) || defined(VULKAN_WINDOW_SDL2)
 
 	// finalize SDL
 	if(sdl::initialized) {
@@ -1384,7 +1384,7 @@ void VulkanWindow::finalize() noexcept
 		sdl::initialized = false;
 	}
 
-#elif defined(USE_PLATFORM_GLFW)
+#elif defined(VULKAN_WINDOW_GLFW)
 
 	// finalize GLFW
 	// (it is safe to call glfwTerminate() even if GLFW was not initialized)
@@ -1403,7 +1403,7 @@ void VulkanWindow::finalize() noexcept
 	assert(glfwGetError(nullptr) == GLFW_NO_ERROR && "VulkanWindow: glfwTerminate() function failed.");
 # endif
 
-#elif defined(USE_PLATFORM_QT)
+#elif defined(VULKAN_WINDOW_QT)
 
 	// delete QVulkanInstance object
 	// but only if we own it
@@ -1435,7 +1435,7 @@ void VulkanWindow::destroy() noexcept
 		return;
 
 	// destroy surface except Qt platform
-#if !defined(USE_PLATFORM_QT)
+#if !defined(VULKAN_WINDOW_QT)
 	if(_instance && _surface)
 	{
 		// get function pointer
@@ -1453,7 +1453,7 @@ void VulkanWindow::destroy() noexcept
 	_surface = nullptr;
 #endif
 
-#if defined(USE_PLATFORM_WIN32)
+#if defined(VULKAN_WINDOW_WIN32)
 
 	// release resources
 	// (do not throw in destructor, so ignore the errors in release builds
@@ -1473,14 +1473,14 @@ void VulkanWindow::destroy() noexcept
 	}
 	_win32.hwnd = nullptr;
 
-#elif defined(USE_PLATFORM_XLIB)
+#elif defined(VULKAN_WINDOW_XLIB)
 
 	// release resources
 	xlib::vulkanWindowMap.erase(_xlib.window);
 	XDestroyWindow(xlib::display, _xlib.window);
 	_xlib.window = 0;
 
-#elif defined(USE_PLATFORM_WAYLAND)
+#elif defined(VULKAN_WINDOW_WAYLAND)
 
 	// invalidate pointers to this object
 	// (maybe, leave events are sent on surface destroy and these are not necessary (?))
@@ -1515,7 +1515,7 @@ void VulkanWindow::destroy() noexcept
 		_wayland.wlSurface = nullptr;
 	}
 
-#elif defined(USE_PLATFORM_SDL3)
+#elif defined(VULKAN_WINDOW_SDL3)
 
 	// get windowID
 	auto windowID = SDL_GetWindowID(_sdl.window);
@@ -1554,7 +1554,7 @@ void VulkanWindow::destroy() noexcept
 			assert(0 && "SDL_PeepEvents(): The function failed.");
 	}
 
-#elif defined(USE_PLATFORM_SDL2)
+#elif defined(VULKAN_WINDOW_SDL2)
 
 	// get windowID
 	auto windowID = SDL_GetWindowID(_sdl.window);
@@ -1593,7 +1593,7 @@ void VulkanWindow::destroy() noexcept
 			assert(0 && "SDL_PeepEvents(): The function failed.");
 	}
 
-#elif defined(USE_PLATFORM_GLFW)
+#elif defined(VULKAN_WINDOW_GLFW)
 
 	// destroy window
 	glfwDestroyWindow(_glfw.window);
@@ -1610,7 +1610,7 @@ void VulkanWindow::destroy() noexcept
 			}
 	}
 
-#elif defined(USE_PLATFORM_QT)
+#elif defined(VULKAN_WINDOW_QT)
 
 	// delete QtRenderingWindow
 	delete _qt.window;
@@ -1622,7 +1622,7 @@ void VulkanWindow::destroy() noexcept
 
 VulkanWindow::VulkanWindow(VulkanWindow&& other) noexcept
 {
-#if defined(USE_PLATFORM_WIN32)
+#if defined(VULKAN_WINDOW_WIN32)
 
 	// move members
 	_win32 = other._win32;
@@ -1638,7 +1638,7 @@ VulkanWindow::VulkanWindow(VulkanWindow&& other) noexcept
 			break;
 		}
 
-#elif defined(USE_PLATFORM_XLIB)
+#elif defined(VULKAN_WINDOW_XLIB)
 
 	// move Xlib members
 	_xlib = other._xlib;
@@ -1648,7 +1648,7 @@ VulkanWindow::VulkanWindow(VulkanWindow&& other) noexcept
 	if(_xlib.window != 0)
 		xlib::vulkanWindowMap[_xlib.window] = this;
 
-#elif defined(USE_PLATFORM_WAYLAND)
+#elif defined(VULKAN_WINDOW_WAYLAND)
 
 	if(other._wayland.wlSurface == nullptr)
 	{
@@ -1688,7 +1688,7 @@ VulkanWindow::VulkanWindow(VulkanWindow&& other) noexcept
 			wayland::windowWithKbFocus = static_cast<VulkanWindowPrivate*>(this);
 	}
 
-#elif defined(USE_PLATFORM_SDL3)
+#elif defined(VULKAN_WINDOW_SDL3)
 
 	// move SDL members
 	_sdl = other._sdl;
@@ -1703,7 +1703,7 @@ VulkanWindow::VulkanWindow(VulkanWindow&& other) noexcept
 			assert(0 && "VulkanWindow: SDL_SetPointerProperty() function failed while updating VulkanWindow pointer.");
 	}
 
-#elif defined(USE_PLATFORM_SDL2)
+#elif defined(VULKAN_WINDOW_SDL2)
 
 	// move SDL members
 	_sdl = other._sdl;
@@ -1713,7 +1713,7 @@ VulkanWindow::VulkanWindow(VulkanWindow&& other) noexcept
 	if(_sdl.window)
 		SDL_SetWindowData(_sdl.window, sdl::windowPointerName, this);
 
-#elif defined(USE_PLATFORM_GLFW)
+#elif defined(VULKAN_WINDOW_GLFW)
 
 	// move GLFW members
 	_glfw = other._glfw;
@@ -1728,7 +1728,7 @@ VulkanWindow::VulkanWindow(VulkanWindow&& other) noexcept
 			break;
 		}
 
-#elif defined(USE_PLATFORM_QT)
+#elif defined(VULKAN_WINDOW_QT)
 
 	// move Qt members
 	_qt = other._qt;
@@ -1764,7 +1764,7 @@ VulkanWindow& VulkanWindow::operator=(VulkanWindow&& other) noexcept
 	// destroy previous content
 	destroy();
 
-#if defined(USE_PLATFORM_WIN32)
+#if defined(VULKAN_WINDOW_WIN32)
 
 	// move members
 	_win32 = other._win32;
@@ -1780,7 +1780,7 @@ VulkanWindow& VulkanWindow::operator=(VulkanWindow&& other) noexcept
 			break;
 		}
 
-#elif defined(USE_PLATFORM_XLIB)
+#elif defined(VULKAN_WINDOW_XLIB)
 
 	// move Xlib members
 	_xlib = other._xlib;
@@ -1790,7 +1790,7 @@ VulkanWindow& VulkanWindow::operator=(VulkanWindow&& other) noexcept
 	if(_xlib.window != 0)
 		xlib::vulkanWindowMap[_xlib.window] = this;
 
-#elif defined(USE_PLATFORM_WAYLAND)
+#elif defined(VULKAN_WINDOW_WAYLAND)
 
 	if(other._wayland.wlSurface == nullptr)
 	{
@@ -1830,7 +1830,7 @@ VulkanWindow& VulkanWindow::operator=(VulkanWindow&& other) noexcept
 			wayland::windowWithKbFocus = static_cast<VulkanWindowPrivate*>(this);
 	}
 
-#elif defined(USE_PLATFORM_SDL3)
+#elif defined(VULKAN_WINDOW_SDL3)
 
 	// move SDL members
 	_sdl = other._sdl;
@@ -1845,7 +1845,7 @@ VulkanWindow& VulkanWindow::operator=(VulkanWindow&& other) noexcept
 			assert(0 && "VulkanWindow: SDL_SetPointerProperty() function failed while updating VulkanWindow pointer.");
 	}
 
-#elif defined(USE_PLATFORM_SDL2)
+#elif defined(VULKAN_WINDOW_SDL2)
 
 	// move SDL members
 	_sdl = other._sdl;
@@ -1855,7 +1855,7 @@ VulkanWindow& VulkanWindow::operator=(VulkanWindow&& other) noexcept
 	if(_sdl.window)
 		SDL_SetWindowData(_sdl.window, sdl::windowPointerName, this);
 
-#elif defined(USE_PLATFORM_GLFW)
+#elif defined(VULKAN_WINDOW_GLFW)
 
 	// move GLFW members
 	_glfw = other._glfw;
@@ -1870,7 +1870,7 @@ VulkanWindow& VulkanWindow::operator=(VulkanWindow&& other) noexcept
 			break;
 		}
 
-#elif defined(USE_PLATFORM_QT)
+#elif defined(VULKAN_WINDOW_QT)
 
 	// move Qt members
 	_qt = other._qt;
@@ -1921,15 +1921,15 @@ VkSurfaceKHR VulkanWindow::createInternal(VkInstance instance, uint32_t width, u
 {
 	// asserts for valid usage
 	assert(instance && "The parameter instance must not be null.");
-#if defined(USE_PLATFORM_WIN32)
+#if defined(VULKAN_WINDOW_WIN32)
 	assert(win32::windowClass && "VulkanWindow class was not initialized. Call VulkanWindow::init() before VulkanWindow::create().");
-#elif defined(USE_PLATFORM_XLIB)
+#elif defined(VULKAN_WINDOW_XLIB)
 	assert(xlib::display && "VulkanWindow class was not initialized. Call VulkanWindow::init() before VulkanWindow::create().");
-#elif defined(USE_PLATFORM_WAYLAND)
+#elif defined(VULKAN_WINDOW_WAYLAND)
 	assert(wayland::display && "VulkanWindow class was not initialized. Call VulkanWindow::init() before VulkanWindow::create().");
-#elif defined(USE_PLATFORM_SDL3) || defined(USE_PLATFORM_SDL2)
+#elif defined(VULKAN_WINDOW_SDL3) || defined(VULKAN_WINDOW_SDL2)
 	assert(sdl::initialized && "VulkanWindow class was not initialized. Call VulkanWindow::init() before VulkanWindow::create().");
-#elif defined(USE_PLATFORM_QT)
+#elif defined(VULKAN_WINDOW_QT)
 	assert(qt::qGuiApplication && "VulkanWindow class was not initialized. Call VulkanWindow::init() before VulkanWindow::create().");
 #endif
 
@@ -1940,7 +1940,7 @@ VkSurfaceKHR VulkanWindow::createInternal(VkInstance instance, uint32_t width, u
 	_surfaceWidth = width;
 	_surfaceHeight = height;
 
-#if defined(USE_PLATFORM_WIN32)
+#if defined(VULKAN_WINDOW_WIN32)
 
 	// init variables
 	_win32.framePendingState = FramePendingState::NotPending;
@@ -1997,7 +1997,7 @@ VkSurfaceKHR VulkanWindow::createInternal(VkInstance instance, uint32_t width, u
 
 	return _surface;
 
-#elif defined(USE_PLATFORM_XLIB)
+#elif defined(VULKAN_WINDOW_XLIB)
 
 	// init variables
 	_xlib.framePending = true;
@@ -2061,7 +2061,7 @@ VkSurfaceKHR VulkanWindow::createInternal(VkInstance instance, uint32_t width, u
 
 	return _surface;
 
-#elif defined(USE_PLATFORM_WAYLAND)
+#elif defined(VULKAN_WINDOW_WAYLAND)
 
 	// init variables
 	_wayland.xdgSurface = nullptr;
@@ -2108,7 +2108,7 @@ VkSurfaceKHR VulkanWindow::createInternal(VkInstance instance, uint32_t width, u
 		throw runtime_error("VulkanWindow: wl_display_flush() failed.");
 	return _surface;
 
-#elif defined(USE_PLATFORM_SDL3)
+#elif defined(VULKAN_WINDOW_SDL3)
 
 	// init variables
 	_sdl.framePending = true;
@@ -2138,7 +2138,7 @@ VkSurfaceKHR VulkanWindow::createInternal(VkInstance instance, uint32_t width, u
 
 	return _surface;
 
-#elif defined(USE_PLATFORM_SDL2)
+#elif defined(VULKAN_WINDOW_SDL2)
 
 	// init variables
 	_sdl.framePending = true;
@@ -2165,7 +2165,7 @@ VkSurfaceKHR VulkanWindow::createInternal(VkInstance instance, uint32_t width, u
 
 	return _surface;
 
-#elif defined(USE_PLATFORM_GLFW)
+#elif defined(VULKAN_WINDOW_GLFW)
 
 	// init variables
 	_glfw.framePendingState = FramePendingState::NotPending;
@@ -2341,7 +2341,7 @@ VkSurfaceKHR VulkanWindow::createInternal(VkInstance instance, uint32_t width, u
 
 	return _surface;
 
-#elif defined(USE_PLATFORM_QT)
+#elif defined(VULKAN_WINDOW_QT)
 
 	// create QVulkanInstance
 	if(qt::qVulkanInstance == nullptr) {
@@ -2393,7 +2393,7 @@ void VulkanWindow::renderFrame()
 	}
 
 	// render scene
-#if !defined(USE_PLATFORM_QT)
+#if !defined(VULKAN_WINDOW_QT)
 	_frameCallback(*this);
 #else
 # if (QT_VERSION >= QT_VERSION_CHECK(5, 15, 0))
@@ -2405,7 +2405,7 @@ void VulkanWindow::renderFrame()
 }
 
 
-#if defined(USE_PLATFORM_WIN32)
+#if defined(VULKAN_WINDOW_WIN32)
 
 
 bool VulkanWindow::visible() const
@@ -2890,7 +2890,7 @@ void VulkanWindow::scheduleFrame()
 }
 
 
-#elif defined(USE_PLATFORM_XLIB)
+#elif defined(VULKAN_WINDOW_XLIB)
 
 
 bool VulkanWindow::visible() const
@@ -3337,7 +3337,7 @@ void VulkanWindow::scheduleFrame()
 }
 
 
-#elif defined(USE_PLATFORM_WAYLAND)
+#elif defined(VULKAN_WINDOW_WAYLAND)
 
 
 bool VulkanWindow::visible() const
@@ -3924,7 +3924,7 @@ void VulkanWindowPrivate::keyboardListenerModifiers(void* data, wl_keyboard* key
 }
 
 
-#elif defined(USE_PLATFORM_SDL3)
+#elif defined(VULKAN_WINDOW_SDL3)
 
 
 const vector<const char*>& VulkanWindow::requiredExtensions()
@@ -4253,7 +4253,7 @@ void VulkanWindow::scheduleFrame()
 }
 
 
-#elif defined(USE_PLATFORM_SDL2)
+#elif defined(VULKAN_WINDOW_SDL2)
 
 
 const vector<const char*>& VulkanWindow::requiredExtensions()
@@ -4600,7 +4600,7 @@ void VulkanWindow::scheduleFrame()
 }
 
 
-#elif defined(USE_PLATFORM_GLFW)
+#elif defined(VULKAN_WINDOW_GLFW)
 
 
 const vector<const char*>& VulkanWindow::requiredExtensions()
@@ -4751,7 +4751,7 @@ void VulkanWindow::scheduleFrame()
 }
 
 
-#elif defined(USE_PLATFORM_QT)
+#elif defined(VULKAN_WINDOW_QT)
 
 
 const vector<const char*>& VulkanWindow::requiredExtensions()
@@ -5093,7 +5093,7 @@ void VulkanWindow::scheduleFrame()
 
 
 
-#if defined(USE_PLATFORM_WIN32)
+#if defined(VULKAN_WINDOW_WIN32)
 
 void VulkanWindow::updateTitle()
 {
@@ -5102,7 +5102,7 @@ void VulkanWindow::updateTitle()
 		throw runtime_error("VulkanWindow::updateTitle(): Failed to set window title.");
 }
 
-#elif defined(USE_PLATFORM_XLIB)
+#elif defined(VULKAN_WINDOW_XLIB)
 
 void VulkanWindow::updateTitle()
 {
@@ -5119,7 +5119,7 @@ void VulkanWindow::updateTitle()
 	);
 }
 
-#elif defined(USE_PLATFORM_WAYLAND)
+#elif defined(VULKAN_WINDOW_WAYLAND)
 
 void VulkanWindow::updateTitle()
 {
@@ -5131,7 +5131,7 @@ void VulkanWindow::updateTitle()
 		xdg_toplevel_set_title(_wayland.xdgTopLevel, _title.c_str());
 }
 
-#elif defined(USE_PLATFORM_SDL3)
+#elif defined(VULKAN_WINDOW_SDL3)
 
 void VulkanWindow::updateTitle()
 {
@@ -5139,21 +5139,21 @@ void VulkanWindow::updateTitle()
 		throw runtime_error("VulkanWindow::updateTitle(): Failed to set window title.");
 }
 
-#elif defined(USE_PLATFORM_SDL2)
+#elif defined(VULKAN_WINDOW_SDL2)
 
 void VulkanWindow::updateTitle()
 {
 	SDL_SetWindowTitle(_sdl.window, _title.c_str());
 }
 
-#elif defined(USE_PLATFORM_GLFW)
+#elif defined(VULKAN_WINDOW_GLFW)
 
 void VulkanWindow::updateTitle()
 {
 	glfwSetWindowTitle(_glfw.window, _title.c_str());
 }
 
-#elif defined(USE_PLATFORM_QT)
+#elif defined(VULKAN_WINDOW_QT)
 
 void VulkanWindow::updateTitle()
 {
@@ -5164,7 +5164,7 @@ void VulkanWindow::updateTitle()
 
 
 
-#if defined(USE_PLATFORM_WIN32)
+#if defined(VULKAN_WINDOW_WIN32)
 
 VulkanWindow::WindowState VulkanWindow::windowState() const
 {
@@ -5259,7 +5259,7 @@ void VulkanWindow::setWindowState(WindowState windowState)
 	}
 }
 
-#elif defined(USE_PLATFORM_XLIB)
+#elif defined(VULKAN_WINDOW_XLIB)
 
 VulkanWindow::WindowState VulkanWindow::windowState() const
 {
@@ -5405,7 +5405,7 @@ void VulkanWindow::setWindowState(WindowState windowState)
 	}
 }
 
-#elif defined(USE_PLATFORM_WAYLAND)
+#elif defined(VULKAN_WINDOW_WAYLAND)
 
 void VulkanWindowPrivate::syncListenerDone(void *data, wl_callback* cb, uint32_t time)
 {
@@ -5544,7 +5544,7 @@ void VulkanWindow::setWindowState(WindowState windowState)
 		throw runtime_error("wl_display_roundtrip() failed.");
 }
 
-#elif defined(USE_PLATFORM_SDL3)
+#elif defined(VULKAN_WINDOW_SDL3)
 
 VulkanWindow::WindowState VulkanWindow::windowState() const
 {
@@ -5605,7 +5605,7 @@ void VulkanWindow::setWindowState(WindowState windowState)
 	}
 }
 
-#elif defined(USE_PLATFORM_SDL2)
+#elif defined(VULKAN_WINDOW_SDL2)
 
 VulkanWindow::WindowState VulkanWindow::windowState() const
 {
@@ -5650,7 +5650,7 @@ void VulkanWindow::setWindowState(WindowState windowState)
 	}
 }
 
-#elif defined(USE_PLATFORM_GLFW)
+#elif defined(VULKAN_WINDOW_GLFW)
 
 VulkanWindow::WindowState VulkanWindow::windowState() const
 {
@@ -5703,7 +5703,7 @@ void VulkanWindow::setWindowState(WindowState windowState)
 	}
 }
 
-#elif defined(USE_PLATFORM_QT)
+#elif defined(VULKAN_WINDOW_QT)
 
 VulkanWindow::WindowState VulkanWindow::windowState() const
 {
