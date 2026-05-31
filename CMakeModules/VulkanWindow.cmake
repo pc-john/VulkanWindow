@@ -78,8 +78,8 @@ macro(VulkanWindowConfigure target vulkanWindowHeaderFile vulkanWindowCppFile)
 			add_custom_command(OUTPUT xdg-decoration-protocol.c
 			                   COMMAND ${Wayland_SCANNER} private-code  ${Wayland_PROTOCOLS_DIR}/unstable/xdg-decoration/xdg-decoration-unstable-v1.xml xdg-decoration-protocol.c)
 
-			list(APPEND ${APP_SOURCES}  xdg-shell-protocol.c        xdg-decoration-protocol.c)
-			list(APPEND ${APP_INCLUDES} xdg-shell-client-protocol.h xdg-decoration-client-protocol.h)
+			target_sources(${target} PRIVATE xdg-shell-protocol.c xdg-decoration-protocol.c
+			                                 xdg-shell-client-protocol.h xdg-decoration-client-protocol.h)
 			set_property(SOURCE "${vulkanWindowCppFile}" PROPERTY COMPILE_FLAGS -DVULKAN_WINDOW_WAYLAND)
 			target_link_libraries(${target} Wayland::client Wayland::cursor -lrt -l:libxkbcommon.so.0)
 
