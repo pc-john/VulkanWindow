@@ -53,13 +53,13 @@ macro(VulkanWindowConfigure target vulkanWindowHeaderFile vulkanWindowCppFile)
 	if("${VULKAN_WINDOW_GUI}" STREQUAL "Win32")
 
 		# configure for Win32
-		target_compile_definitions(${target} PRIVATE VULKAN_WINDOW_WIN32)
+		set_property(SOURCE "${vulkanWindowCppFile}" PROPERTY COMPILE_FLAGS -DVULKAN_WINDOW_WIN32)
 
 	elseif("${VULKAN_WINDOW_GUI}" STREQUAL "Xlib")
 
 		# configure for Xlib
 		find_package(X11 REQUIRED)
-		target_compile_definitions(${target} PRIVATE VULKAN_WINDOW_XLIB)
+		set_property(SOURCE "${vulkanWindowCppFile}" PROPERTY COMPILE_FLAGS -DVULKAN_WINDOW_XLIB)
 		target_link_libraries(${target} X11 -l:libxkbcommon.so.0)
 
 	elseif("${VULKAN_WINDOW_GUI}" STREQUAL "Wayland")
@@ -80,7 +80,7 @@ macro(VulkanWindowConfigure target vulkanWindowHeaderFile vulkanWindowCppFile)
 
 			list(APPEND ${APP_SOURCES}  xdg-shell-protocol.c        xdg-decoration-protocol.c)
 			list(APPEND ${APP_INCLUDES} xdg-shell-client-protocol.h xdg-decoration-client-protocol.h)
-			target_compile_definitions(${target} PRIVATE VULKAN_WINDOW_WAYLAND)
+			set_property(SOURCE "${vulkanWindowCppFile}" PROPERTY COMPILE_FLAGS -DVULKAN_WINDOW_WAYLAND)
 			target_link_libraries(${target} Wayland::client Wayland::cursor -lrt -l:libxkbcommon.so.0)
 
 		else()
@@ -91,28 +91,28 @@ macro(VulkanWindowConfigure target vulkanWindowHeaderFile vulkanWindowCppFile)
 
 		# configure for SDL3
 		find_package(SDL3 REQUIRED)
-		target_compile_definitions(${target} PRIVATE VULKAN_WINDOW_SDL3)
+		set_property(SOURCE "${vulkanWindowCppFile}" PROPERTY COMPILE_FLAGS -DVULKAN_WINDOW_SDL3)
 		target_link_libraries(${target} SDL3::SDL3)
 
 	elseif("${VULKAN_WINDOW_GUI}" STREQUAL "SDL2")
 
 		# configure for SDL2
 		find_package(SDL2 REQUIRED)
-		target_compile_definitions(${target} PRIVATE VULKAN_WINDOW_SDL2)
+		set_property(SOURCE "${vulkanWindowCppFile}" PROPERTY COMPILE_FLAGS -DVULKAN_WINDOW_SDL2)
 		target_link_libraries(${target} SDL2::SDL2)
 
 	elseif("${VULKAN_WINDOW_GUI}" STREQUAL "GLFW")
 
 		# configure for GLFW
 		find_package(glfw3 3.3 REQUIRED)
-		target_compile_definitions(${target} PRIVATE VULKAN_WINDOW_GLFW)
+		set_property(SOURCE "${vulkanWindowCppFile}" PROPERTY COMPILE_FLAGS -DVULKAN_WINDOW_GLFW)
 		target_link_libraries(${target} glfw)
 
 	elseif("${VULKAN_WINDOW_GUI}" STREQUAL "Qt6")
 
 		# configure for Qt6
 		find_package(Qt6 REQUIRED COMPONENTS Core Gui)
-		target_compile_definitions(${target} PRIVATE VULKAN_WINDOW_QT)
+		set_property(SOURCE "${vulkanWindowCppFile}" PROPERTY COMPILE_FLAGS -DVULKAN_WINDOW_QT)
 		target_link_libraries(${target} Qt6::Gui)
 
 	elseif("${VULKAN_WINDOW_GUI}" STREQUAL "Qt5")
@@ -120,7 +120,7 @@ macro(VulkanWindowConfigure target vulkanWindowHeaderFile vulkanWindowCppFile)
 		# configure for Qt5
 		# (we need at least version 5.10 because of Vulkan support)
 		find_package(Qt5 5.10 REQUIRED COMPONENTS Core Gui)
-		target_compile_definitions(${target} PRIVATE VULKAN_WINDOW_QT)
+		set_property(SOURCE "${vulkanWindowCppFile}" PROPERTY COMPILE_FLAGS -DVULKAN_WINDOW_QT)
 		target_link_libraries(${target} Qt5::Gui)
 		if(WIN32)
 			# windeployqt path
