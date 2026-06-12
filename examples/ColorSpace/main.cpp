@@ -16,11 +16,14 @@ constexpr const char* appName = "ColorSpace";
 
 
 // shader code in SPIR-V binary
-static const uint32_t vsSpirv[] = {
-#include "shader.vert.spv"
+static const uint32_t chromacityDiagramVertSpirv[] = {
+#include "ChromacityDiagram.vert.spv"
 };
-static const uint32_t fsSpirv[] = {
-#include "shader.frag.spv"
+static const uint32_t colorSpaceVertSpirv[] = {
+#include "ColorSpace.vert.spv"
+};
+static const uint32_t interpolatedColorFragSpirv[] = {
+#include "InterpolatedColor.frag.spv"
 };
 
 
@@ -62,10 +65,12 @@ public:
 	vk::Fence renderFinishedFence;
 	vk::CommandPool commandPool;
 	vk::CommandBuffer commandBuffer;
-	vk::ShaderModule vsModule;
-	vk::ShaderModule fsModule;
+	vk::ShaderModule chromacityDiagramVertModule;
+	vk::ShaderModule colorSpaceVertModule;
+	vk::ShaderModule interpolatedColorFragModule;
 	vk::PipelineLayout pipelineLayout;
-	vk::Pipeline pipeline;
+	vk::Pipeline chromacityDiagramPipeline;
+	vk::Pipeline colorSpacePipeline;
 
 };
 
@@ -102,10 +107,12 @@ App::~App()
 
 		// destroy handles
 		// (the handles are destructed in certain (not arbitrary) order)
-		device.destroy(pipeline);
+		device.destroy(chromacityDiagramPipeline);
+		device.destroy(colorSpacePipeline);
 		device.destroy(pipelineLayout);
-		device.destroy(fsModule);
-		device.destroy(vsModule);
+		device.destroy(interpolatedColorFragModule);
+		device.destroy(chromacityDiagramVertModule);
+		device.destroy(colorSpaceVertModule);
 		device.destroy(commandPool);
 		device.destroy(imageAvailableFence);
 		device.destroy(renderFinishedFence);
@@ -604,20 +611,28 @@ void App::init()
 		);
 
 	// create shader modules
-	vsModule =
+	chromacityDiagramVertModule =
 		device.createShaderModule(
 			vk::ShaderModuleCreateInfo(
 				vk::ShaderModuleCreateFlags(),  // flags
-				sizeof(vsSpirv),  // codeSize
-				vsSpirv  // pCode
+				sizeof(chromacityDiagramVertSpirv),  // codeSize
+				chromacityDiagramVertSpirv  // pCode
 			)
 		);
-	fsModule =
+	colorSpaceVertModule =
 		device.createShaderModule(
 			vk::ShaderModuleCreateInfo(
 				vk::ShaderModuleCreateFlags(),  // flags
-				sizeof(fsSpirv),  // codeSize
-				fsSpirv  // pCode
+				sizeof(colorSpaceVertSpirv),  // codeSize
+				colorSpaceVertSpirv  // pCode
+			)
+		);
+	interpolatedColorFragModule =
+		device.createShaderModule(
+			vk::ShaderModuleCreateInfo(
+				vk::ShaderModuleCreateFlags(),  // flags
+				sizeof(interpolatedColorFragSpirv),  // codeSize
+				interpolatedColorFragSpirv  // pCode
 			)
 		);
 
@@ -680,8 +695,10 @@ void App::resize(VulkanWindow&, uint32_t& widthToBeSet, uint32_t& heightToBeSet)
 	swapchainImageViews.clear();
 	for(auto f : framebuffers)  device.destroy(f);
 	framebuffers.clear();
-	device.destroy(pipeline);
-	pipeline = nullptr;
+	device.destroy(chromacityDiagramPipeline);
+	chromacityDiagramPipeline = nullptr;
+	device.destroy(colorSpacePipeline);
+	colorSpacePipeline = nullptr;
 
 	// print info
 	cout << "Recreating swapchain (extent: " << newSurfaceExtent.width << "x" << newSurfaceExtent.height
@@ -773,122 +790,162 @@ void App::resize(VulkanWindow&, uint32_t& widthToBeSet, uint32_t& heightToBeSet)
 	}
 
 	// pipeline
-	pipeline =
-		device.createGraphicsPipeline(
-			nullptr,  // pipelineCache
-			vk::GraphicsPipelineCreateInfo(
-				vk::PipelineCreateFlags(),  // flags
+	tie(chromacityDiagramPipeline, colorSpacePipeline) =
+		[&]()
+		{
+			array<vk::Pipeline,2> pipelines = {};
 
-				// shader stages
-				2,  // stageCount
-				array{  // pStages
-					vk::PipelineShaderStageCreateInfo{
-						vk::PipelineShaderStageCreateFlags(),  // flags
-						vk::ShaderStageFlagBits::eVertex,  // stage
-						vsModule,  // module
-						"main",  // pName
-						nullptr  // pSpecializationInfo
-					},
-					vk::PipelineShaderStageCreateInfo{
-						vk::PipelineShaderStageCreateFlags(),  // flags
-						vk::ShaderStageFlagBits::eFragment,  // stage
-						fsModule,  // module
-						"main",  // pName
-						nullptr  // pSpecializationInfo
-					},
-				}.data(),
-
-				// vertex input
-				&(const vk::PipelineVertexInputStateCreateInfo&)vk::PipelineVertexInputStateCreateInfo{  // pVertexInputState
-					vk::PipelineVertexInputStateCreateFlags(),  // flags
-					0,        // vertexBindingDescriptionCount
-					nullptr,  // pVertexBindingDescriptions
-					0,        // vertexAttributeDescriptionCount
-					nullptr   // pVertexAttributeDescriptions
+			array<vk::PipelineShaderStageCreateInfo,2> chromacityDiagramShaders{
+				vk::PipelineShaderStageCreateInfo{
+					vk::PipelineShaderStageCreateFlags(),  // flags
+					vk::ShaderStageFlagBits::eVertex,  // stage
+					chromacityDiagramVertModule,  // module
+					"main",  // pName
+					nullptr  // pSpecializationInfo
 				},
-
-				// input assembly
-				&(const vk::PipelineInputAssemblyStateCreateInfo&)vk::PipelineInputAssemblyStateCreateInfo{  // pInputAssemblyState
-					vk::PipelineInputAssemblyStateCreateFlags(),  // flags
-					vk::PrimitiveTopology::eTriangleFan,  // topology
-					VK_FALSE  // primitiveRestartEnable
+				vk::PipelineShaderStageCreateInfo{
+					vk::PipelineShaderStageCreateFlags(),  // flags
+					vk::ShaderStageFlagBits::eFragment,  // stage
+					interpolatedColorFragModule,  // module
+					"main",  // pName
+					nullptr  // pSpecializationInfo
 				},
-
-				// tessellation
-				nullptr, // pTessellationState
-
-				// viewport
-				&(const vk::PipelineViewportStateCreateInfo&)vk::PipelineViewportStateCreateInfo{  // pViewportState
-					vk::PipelineViewportStateCreateFlags(),  // flags
-					1,  // viewportCount
-					array{  // pViewports
-						vk::Viewport(0.f, 0.f, float(newSurfaceExtent.width), float(newSurfaceExtent.height), 0.f, 1.f),
-					}.data(),
-					1,  // scissorCount
-					array{  // pScissors
-						vk::Rect2D(vk::Offset2D(0,0), newSurfaceExtent)
-					}.data(),
+			};
+			array<vk::PipelineShaderStageCreateInfo,2> colorSpaceShaders{
+				vk::PipelineShaderStageCreateInfo{
+					vk::PipelineShaderStageCreateFlags(),  // flags
+					vk::ShaderStageFlagBits::eVertex,  // stage
+					colorSpaceVertModule,  // module
+					"main",  // pName
+					nullptr  // pSpecializationInfo
 				},
-
-				// rasterization
-				&(const vk::PipelineRasterizationStateCreateInfo&)vk::PipelineRasterizationStateCreateInfo{  // pRasterizationState
-					vk::PipelineRasterizationStateCreateFlags(),  // flags
-					VK_FALSE,  // depthClampEnable
-					VK_FALSE,  // rasterizerDiscardEnable
-					vk::PolygonMode::eFill,  // polygonMode
-					vk::CullModeFlagBits::eNone,  // cullMode
-					vk::FrontFace::eCounterClockwise,  // frontFace
-					VK_FALSE,  // depthBiasEnable
-					0.f,  // depthBiasConstantFactor
-					0.f,  // depthBiasClamp
-					0.f,  // depthBiasSlopeFactor
-					1.f   // lineWidth
+				vk::PipelineShaderStageCreateInfo{
+					vk::PipelineShaderStageCreateFlags(),  // flags
+					vk::ShaderStageFlagBits::eFragment,  // stage
+					interpolatedColorFragModule,  // module
+					"main",  // pName
+					nullptr  // pSpecializationInfo
 				},
+			};
+			vk::PipelineVertexInputStateCreateInfo vertexInputState{
+				vk::PipelineVertexInputStateCreateFlags(),  // flags
+				0,        // vertexBindingDescriptionCount
+				nullptr,  // pVertexBindingDescriptions
+				0,        // vertexAttributeDescriptionCount
+				nullptr   // pVertexAttributeDescriptions
+			};
+			vk::PipelineInputAssemblyStateCreateInfo inputAssemblyState{
+				vk::PipelineInputAssemblyStateCreateFlags(),  // flags
+				vk::PrimitiveTopology::eTriangleFan,  // topology
+				VK_FALSE  // primitiveRestartEnable
+			};
+			vk::Viewport viewport(0.f, 0.f, float(newSurfaceExtent.width), float(newSurfaceExtent.height), 0.f, 1.f);
+			vk::Rect2D scissor(vk::Offset2D(0,0), newSurfaceExtent);
+			vk::PipelineViewportStateCreateInfo viewportState{
+				vk::PipelineViewportStateCreateFlags(),  // flags
+				1,  // viewportCount
+				&viewport,  // pViewports
+				1,  // scissorCount
+				&scissor,  // pScissors
+			};
+			vk::PipelineRasterizationStateCreateInfo rasterizationState{
+				vk::PipelineRasterizationStateCreateFlags(),  // flags
+				VK_FALSE,  // depthClampEnable
+				VK_FALSE,  // rasterizerDiscardEnable
+				vk::PolygonMode::eFill,  // polygonMode
+				vk::CullModeFlagBits::eNone,  // cullMode
+				vk::FrontFace::eCounterClockwise,  // frontFace
+				VK_FALSE,  // depthBiasEnable
+				0.f,  // depthBiasConstantFactor
+				0.f,  // depthBiasClamp
+				0.f,  // depthBiasSlopeFactor
+				1.f   // lineWidth
+			};
+			vk::PipelineMultisampleStateCreateInfo multisampleState{
+				vk::PipelineMultisampleStateCreateFlags(),  // flags
+				vk::SampleCountFlagBits::e1,  // rasterizationSamples
+				VK_FALSE,  // sampleShadingEnable
+				0.f,       // minSampleShading
+				nullptr,   // pSampleMask
+				VK_FALSE,  // alphaToCoverageEnable
+				VK_FALSE   // alphaToOneEnable
+			};
+			vk::PipelineColorBlendAttachmentState attachmentBlendState{
+				VK_FALSE,  // blendEnable
+				vk::BlendFactor::eZero,  // srcColorBlendFactor
+				vk::BlendFactor::eZero,  // dstColorBlendFactor
+				vk::BlendOp::eAdd,       // colorBlendOp
+				vk::BlendFactor::eZero,  // srcAlphaBlendFactor
+				vk::BlendFactor::eZero,  // dstAlphaBlendFactor
+				vk::BlendOp::eAdd,       // alphaBlendOp
+				vk::ColorComponentFlagBits::eR | vk::ColorComponentFlagBits::eG |
+					vk::ColorComponentFlagBits::eB | vk::ColorComponentFlagBits::eA  // colorWriteMask
+			};
+			vk::PipelineColorBlendStateCreateInfo colorBlendState{
+				vk::PipelineColorBlendStateCreateFlags(),  // flags
+				VK_FALSE,  // logicOpEnable
+				vk::LogicOp::eClear,  // logicOp
+				1,  // attachmentCount
+				&attachmentBlendState,  // pAttachments
+				array<float,4>{0.f,0.f,0.f,0.f}  // blendConstants
+			};
 
-				// multisampling
-				&(const vk::PipelineMultisampleStateCreateInfo&)vk::PipelineMultisampleStateCreateInfo{  // pMultisampleState
-					vk::PipelineMultisampleStateCreateFlags(),  // flags
-					vk::SampleCountFlagBits::e1,  // rasterizationSamples
-					VK_FALSE,  // sampleShadingEnable
-					0.f,       // minSampleShading
-					nullptr,   // pSampleMask
-					VK_FALSE,  // alphaToCoverageEnable
-					VK_FALSE   // alphaToOneEnable
+			array<vk::GraphicsPipelineCreateInfo,2> createInfoList{
+				vk::GraphicsPipelineCreateInfo{
+					vk::PipelineCreateFlags(),  // flags
+					2,  // stageCount
+					chromacityDiagramShaders.data(),  // pStages
+					&vertexInputState,  // pVertexInputState
+					&inputAssemblyState,  // pInputAssemblyState
+					nullptr, // pTessellationState
+					&viewportState,  // pViewportState
+					&rasterizationState,  // pRasterizationState
+					&multisampleState,  // pMultisampleState
+					nullptr,  // pDepthStencilState
+					&colorBlendState,  // pColorBlendState
+					nullptr,  // pDynamicState
+					pipelineLayout,  // layout
+					renderPass,  // renderPass
+					0,  // subpass
+					vk::Pipeline(nullptr),  // basePipelineHandle
+					-1 // basePipelineIndex
 				},
-
-				// depth and stencil
-				nullptr,  // pDepthStencilState
-
-				// blending
-				&(const vk::PipelineColorBlendStateCreateInfo&)vk::PipelineColorBlendStateCreateInfo{  // pColorBlendState
-					vk::PipelineColorBlendStateCreateFlags(),  // flags
-					VK_FALSE,  // logicOpEnable
-					vk::LogicOp::eClear,  // logicOp
-					1,  // attachmentCount
-					array{  // pAttachments
-						vk::PipelineColorBlendAttachmentState{
-							VK_FALSE,  // blendEnable
-							vk::BlendFactor::eZero,  // srcColorBlendFactor
-							vk::BlendFactor::eZero,  // dstColorBlendFactor
-							vk::BlendOp::eAdd,       // colorBlendOp
-							vk::BlendFactor::eZero,  // srcAlphaBlendFactor
-							vk::BlendFactor::eZero,  // dstAlphaBlendFactor
-							vk::BlendOp::eAdd,       // alphaBlendOp
-							vk::ColorComponentFlagBits::eR | vk::ColorComponentFlagBits::eG |
-								vk::ColorComponentFlagBits::eB | vk::ColorComponentFlagBits::eA  // colorWriteMask
-						},
-					}.data(),
-					array<float,4>{0.f,0.f,0.f,0.f}  // blendConstants
+				vk::GraphicsPipelineCreateInfo{
+					vk::PipelineCreateFlags(),  // flags
+					2,  // stageCount
+					colorSpaceShaders.data(),  // pStages
+					&vertexInputState,  // pVertexInputState
+					&inputAssemblyState,  // pInputAssemblyState
+					nullptr, // pTessellationState
+					&viewportState,  // pViewportState
+					&rasterizationState,  // pRasterizationState
+					&multisampleState,  // pMultisampleState
+					nullptr,  // pDepthStencilState
+					&colorBlendState,  // pColorBlendState
+					nullptr,  // pDynamicState
+					pipelineLayout,  // layout
+					renderPass,  // renderPass
+					0,  // subpass
+					vk::Pipeline(nullptr),  // basePipelineHandle
+					-1 // basePipelineIndex
 				},
+			};
 
-				nullptr,  // pDynamicState
-				pipelineLayout,  // layout
-				renderPass,  // renderPass
-				0,  // subpass
-				vk::Pipeline(nullptr),  // basePipelineHandle
-				-1 // basePipelineIndex
-			)
-		).value;
+			vk::Result r =
+				device.createGraphicsPipelines(
+					nullptr,  // pipelineCache
+					createInfoList.size(),  // createInfoCount
+					createInfoList.data(),  // pCreateInfos
+					nullptr,  // pAllocator
+					pipelines.data()  // pPipelines
+				);
+			if(r != vk::Result::eSuccess) {
+				for(auto p : pipelines)
+					device.destroy(p);
+				throw runtime_error("Vulkan function vkCreateGraphicsPipelines() failed with error " + vk::to_string(r) + ".");
+			}
+			return tuple(pipelines[0], pipelines[1]);
+		}();
 }
 
 
@@ -968,12 +1025,50 @@ void App::frame(VulkanWindow&)
 		vk::SubpassContents::eInline
 	);
 
-	// rendering commands
-	commandBuffer.bindPipeline(vk::PipelineBindPoint::eGraphics, pipeline);  // bind pipeline
-	commandBuffer.draw(  // draw single triangle
+	// draw chromacity diagram
+	commandBuffer.bindPipeline(vk::PipelineBindPoint::eGraphics, chromacityDiagramPipeline);  // bind pipeline
+	commandBuffer.draw(  // draw triangle fan
 		444,  // vertexCount
 		1,  // instanceCount
 		0,  // firstVertex
+		0   // firstInstance
+	);
+
+	// draw color space
+	uint32_t firstVertex =
+		[](vk::ColorSpaceKHR colorSpace) {
+			switch(colorSpace) {
+
+				case vk::ColorSpaceKHR::eSrgbNonlinear:
+				case vk::ColorSpaceKHR::eBt709LinearEXT:
+				case vk::ColorSpaceKHR::eBt709NonlinearEXT:
+				case vk::ColorSpaceKHR::eExtendedSrgbLinearEXT:
+				case vk::ColorSpaceKHR::eExtendedSrgbNonlinearEXT:
+					return 3;
+
+				case vk::ColorSpaceKHR::eDisplayP3LinearEXT:
+				case vk::ColorSpaceKHR::eDisplayP3NonlinearEXT:
+				case vk::ColorSpaceKHR::eDciP3NonlinearEXT:
+					return 6;
+
+				case vk::ColorSpaceKHR::eAdobergbLinearEXT:
+				case vk::ColorSpaceKHR::eAdobergbNonlinearEXT:
+					return 9;
+
+				case vk::ColorSpaceKHR::eBt2020LinearEXT:
+				case vk::ColorSpaceKHR::eHdr10HlgEXT:
+				case vk::ColorSpaceKHR::eHdr10St2084EXT:
+					return 12;
+
+				default:
+					return 0;
+			}
+		}(surfaceFormat.colorSpace);
+	commandBuffer.bindPipeline(vk::PipelineBindPoint::eGraphics, colorSpacePipeline);  // bind pipeline
+	commandBuffer.draw(  // draw single triangle
+		3,  // vertexCount
+		1,  // instanceCount
+		firstVertex,  // firstVertex
 		0   // firstInstance
 	);
 

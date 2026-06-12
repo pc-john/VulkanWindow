@@ -472,18 +472,18 @@ out gl_PerVertex {
 	vec4 gl_Position;
 };
 
-layout(location = 0) out vec3 outColor;
+layout(location = 0) out vec4 outColor;
 
 
 void main()
 {
 	// convert LMS to XYZ color space
-	vec3 xyz = lms[gl_VertexIndex].xyz * lms2xyz;
+	vec3 xyz = lms[gl_VertexIndex] * lms2xyz;
 
 	// convert XYZ to x,y chromacity coordinates
-	float s = xyz.x + xyz.y + xyz.z;
-	float chx = xyz.x / s;
-	float chy = xyz.y / s;
+	float sum = xyz.x + xyz.y + xyz.z;
+	float chx = xyz.x / sum;
+	float chy = xyz.y / sum;
 
 	// vertex screen position
 	gl_Position = vec4(chx*2-1, -chy*2+1, 0.5, 1.0);
@@ -492,4 +492,6 @@ void main()
 	outColor.r = clamp((chx-0.167)/(0.724-0.167), 0, 1);
 	outColor.g = clamp((chy-(0.277*outColor.r))/(0.841-(0.27*outColor.r)), 0, 1);
 	outColor.b = clamp(1 - outColor.r - outColor.g, 0, 1);
+	outColor.rgb *= 0.5;  // reduce brightness
+	outColor.a = 1;
 }

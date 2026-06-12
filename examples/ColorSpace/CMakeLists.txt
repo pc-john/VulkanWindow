@@ -14,8 +14,9 @@ set(APP_INCLUDES
 )
 
 set(APP_SHADERS
-	shader.vert
-	shader.frag
+	ChromacityDiagram.vert
+	ColorSpace.vert
+	InterpolatedColor.frag
 )
 
 # dependencies
