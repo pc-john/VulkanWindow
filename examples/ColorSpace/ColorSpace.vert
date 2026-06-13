@@ -58,6 +58,6 @@ void main()
 	gl_Position = vec4(chroma.x*2-1, -chroma.y*2+1, 0.5, 1.0);
 
 	// color
-	int colorIndex = gl_VertexIndex - gl_BaseVertex;
-	outColor = colorTable[colorIndex];
+	int colorIndex = gl_VertexIndex;
+	outColor = colorTable[colorIndex % 3];
 }
