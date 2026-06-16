@@ -811,8 +811,6 @@ void App::resize(VulkanWindow&, uint32_t& widthToBeSet, uint32_t& heightToBeSet)
 	tie(chromacityDiagramCIE1931Pipeline, chromacityDiagramCIE2006Pipeline, colorSpacePipeline) =
 		[&]()
 		{
-			array<vk::Pipeline,3> pipelines = {};
-
 			array<vk::PipelineShaderStageCreateInfo,2> chromacityDiagramCIE1931Shaders{
 				vk::PipelineShaderStageCreateInfo{
 					vk::PipelineShaderStageCreateFlags(),  // flags
@@ -883,8 +881,16 @@ void App::resize(VulkanWindow&, uint32_t& widthToBeSet, uint32_t& heightToBeSet)
 				vk::PrimitiveTopology::eLineStrip,  // topology
 				VK_FALSE  // primitiveRestartEnable
 			};
-			vk::Viewport viewport(0.f, 0.f, float(newSurfaceExtent.width), float(newSurfaceExtent.height), 0.f, 1.f);
-			vk::Rect2D scissor(vk::Offset2D(0,0), newSurfaceExtent);
+
+			// make viewport and scissor centered square 
+			vk::Rect2D scissor =
+				(newSurfaceExtent.height < newSurfaceExtent.width)
+				? vk::Rect2D(vk::Offset2D((newSurfaceExtent.width - newSurfaceExtent.height) / 2, 0),
+				             vk::Extent2D(newSurfaceExtent.height, newSurfaceExtent.height))
+				: vk::Rect2D(vk::Offset2D(0, (newSurfaceExtent.height - newSurfaceExtent.width) / 2),
+				             vk::Extent2D(newSurfaceExtent.width, newSurfaceExtent.width));
+			vk::Viewport viewport(float(scissor.offset.x), float(scissor.offset.y),
+			                      float(scissor.extent.width), float(scissor.extent.height), 0.f, 1.f);
 			vk::PipelineViewportStateCreateInfo viewportState{
 				vk::PipelineViewportStateCreateFlags(),  // flags
 				1,  // viewportCount
@@ -892,6 +898,7 @@ void App::resize(VulkanWindow&, uint32_t& widthToBeSet, uint32_t& heightToBeSet)
 				1,  // scissorCount
 				&scissor,  // pScissors
 			};
+
 			vk::PipelineRasterizationStateCreateInfo rasterizationState{
 				vk::PipelineRasterizationStateCreateFlags(),  // flags
 				VK_FALSE,  // depthClampEnable
@@ -994,6 +1001,9 @@ void App::resize(VulkanWindow&, uint32_t& widthToBeSet, uint32_t& heightToBeSet)
 				},
 			};
 
+			// create pipelines
+			// (use no-throw version of createGraphicsPipelines() to avoid bug in Vulkan-HPP, https://github.com/KhronosGroup/Vulkan-Hpp/issues/2367, fixed in v1.4.336)
+			array<vk::Pipeline,3> pipelines = {};
 			vk::Result r =
 				device.createGraphicsPipelines(
 					nullptr,  // pipelineCache
@@ -1007,7 +1017,10 @@ void App::resize(VulkanWindow&, uint32_t& widthToBeSet, uint32_t& heightToBeSet)
 					device.destroy(p);
 				throw runtime_error("Vulkan function vkCreateGraphicsPipelines() failed with error " + vk::to_string(r) + ".");
 			}
+
+			// return pipelines
 			return tuple(pipelines[0], pipelines[1], pipelines[2]);
+
 		}();
 }
 
