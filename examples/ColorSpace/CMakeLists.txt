@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: 2025 PCJohn (Jan Pečiva, peciva@fit.vut.cz)
+# SPDX-FileCopyrightText: 2025-2026 PCJohn (Jan Pečiva, peciva@fit.vut.cz)
 #
 # SPDX-License-Identifier: MIT-0
 
@@ -14,7 +14,8 @@ set(APP_INCLUDES
 )
 
 set(APP_SHADERS
-	ChromacityDiagram.vert
+	ChromacityDiagram-CIE1931.vert
+	ChromacityDiagram-CIE2006.vert
 	ColorSpace.vert
 	InterpolatedColor.frag
 )

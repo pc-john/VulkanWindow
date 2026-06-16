@@ -4,11 +4,13 @@
 
 #version 450
 
-// LMS response table data
-// (2-deg LMS fundamentals based on the Stiles and Burch 10-deg CMFs adjusted to 2-deg,
-// downloaded from: http://www.cvrl.org/ciepr.htm in linear energy units, 1nm step,
-// 444 values in total, composed of 441 normal values plus one whitepoint
-// plus two values to close the horseshoe shape from the bottom
+// CIE 2006 LMS response table data
+// (source: Stockman & Sharpe cone fundamentals (2000),
+// downloaded from: http://www.cvrl.org/ciepr.htm as
+// 2-deg LMS fundamentals based on the Stiles and Burch 10-deg CMFs adjusted to 2-deg,
+// in linear energy units, 1nm step;
+// 444 values in total, composed of 441 normal values (for wavelengths 390-830)
+// plus one whitepoint plus two values to close the horseshoe shape from the bottom
 vec3 lms[] =
 	vec3[](
 		vec3(1.2232, 1, 0.616),  // white point
@@ -486,11 +488,11 @@ void main()
 	float chy = xyz.y / sum;
 
 	// vertex screen position
-	gl_Position = vec4(chx*2-1, -chy*2+1, 0.5, 1.0);
+	gl_Position = vec4(chx * 2 - 1, -chy * 2 + 1, 0.5, 1.0);
 
 	// pseudo-color
-	outColor.r = clamp((chx-0.167)/(0.724-0.167), 0, 1);
-	outColor.g = clamp((chy-(0.277*outColor.r))/(0.841-(0.27*outColor.r)), 0, 1);
+	outColor.r = clamp((chx - 0.167) / (0.724 - 0.167), 0, 1);
+	outColor.g = clamp((chy - (0.277 * outColor.r)) / (0.841 - (0.27 * outColor.r)), 0, 1);
 	outColor.b = clamp(1 - outColor.r - outColor.g, 0, 1);
 	outColor.rgb *= 0.5;  // reduce brightness
 	outColor.a = 1;

@@ -16,8 +16,11 @@ constexpr const char* appName = "ColorSpace";
 
 
 // shader code in SPIR-V binary
-static const uint32_t chromacityDiagramVertSpirv[] = {
-#include "ChromacityDiagram.vert.spv"
+static const uint32_t chromacityDiagramCIE1931VertSpirv[] = {
+#include "ChromacityDiagram-CIE1931.vert.spv"
+};
+static const uint32_t chromacityDiagramCIE2006VertSpirv[] = {
+#include "ChromacityDiagram-CIE2006.vert.spv"
 };
 static const uint32_t colorSpaceVertSpirv[] = {
 #include "ColorSpace.vert.spv"
@@ -66,11 +69,13 @@ public:
 	vk::Fence renderFinishedFence;
 	vk::CommandPool commandPool;
 	vk::CommandBuffer commandBuffer;
-	vk::ShaderModule chromacityDiagramVertModule;
+	vk::ShaderModule chromacityDiagramCIE1931VertModule;
+	vk::ShaderModule chromacityDiagramCIE2006VertModule;
 	vk::ShaderModule colorSpaceVertModule;
 	vk::ShaderModule interpolatedColorFragModule;
 	vk::PipelineLayout pipelineLayout;
-	vk::Pipeline chromacityDiagramPipeline;
+	vk::Pipeline chromacityDiagramCIE1931Pipeline;
+	vk::Pipeline chromacityDiagramCIE2006Pipeline;
 	vk::Pipeline colorSpacePipeline;
 
 };
@@ -108,11 +113,13 @@ App::~App()
 
 		// destroy handles
 		// (the handles are destructed in certain (not arbitrary) order)
-		device.destroy(chromacityDiagramPipeline);
+		device.destroy(chromacityDiagramCIE1931Pipeline);
+		device.destroy(chromacityDiagramCIE2006Pipeline);
 		device.destroy(colorSpacePipeline);
 		device.destroy(pipelineLayout);
 		device.destroy(interpolatedColorFragModule);
-		device.destroy(chromacityDiagramVertModule);
+		device.destroy(chromacityDiagramCIE1931VertModule);
+		device.destroy(chromacityDiagramCIE2006VertModule);
 		device.destroy(colorSpaceVertModule);
 		device.destroy(commandPool);
 		device.destroy(imageAvailableFence);
@@ -612,12 +619,20 @@ void App::init()
 		);
 
 	// create shader modules
-	chromacityDiagramVertModule =
+	chromacityDiagramCIE1931VertModule =
 		device.createShaderModule(
 			vk::ShaderModuleCreateInfo(
 				vk::ShaderModuleCreateFlags(),  // flags
-				sizeof(chromacityDiagramVertSpirv),  // codeSize
-				chromacityDiagramVertSpirv  // pCode
+				sizeof(chromacityDiagramCIE1931VertSpirv),  // codeSize
+				chromacityDiagramCIE1931VertSpirv  // pCode
+			)
+		);
+	chromacityDiagramCIE2006VertModule =
+		device.createShaderModule(
+			vk::ShaderModuleCreateInfo(
+				vk::ShaderModuleCreateFlags(),  // flags
+				sizeof(chromacityDiagramCIE2006VertSpirv),  // codeSize
+				chromacityDiagramCIE2006VertSpirv  // pCode
 			)
 		);
 	colorSpaceVertModule =
@@ -696,8 +711,10 @@ void App::resize(VulkanWindow&, uint32_t& widthToBeSet, uint32_t& heightToBeSet)
 	swapchainImageViews.clear();
 	for(auto f : framebuffers)  device.destroy(f);
 	framebuffers.clear();
-	device.destroy(chromacityDiagramPipeline);
-	chromacityDiagramPipeline = nullptr;
+	device.destroy(chromacityDiagramCIE1931Pipeline);
+	chromacityDiagramCIE1931Pipeline = nullptr;
+	device.destroy(chromacityDiagramCIE2006Pipeline);
+	chromacityDiagramCIE2006Pipeline = nullptr;
 	device.destroy(colorSpacePipeline);
 	colorSpacePipeline = nullptr;
 
@@ -791,16 +808,32 @@ void App::resize(VulkanWindow&, uint32_t& widthToBeSet, uint32_t& heightToBeSet)
 	}
 
 	// pipeline
-	tie(chromacityDiagramPipeline, colorSpacePipeline) =
+	tie(chromacityDiagramCIE1931Pipeline, chromacityDiagramCIE2006Pipeline, colorSpacePipeline) =
 		[&]()
 		{
-			array<vk::Pipeline,2> pipelines = {};
+			array<vk::Pipeline,3> pipelines = {};
 
-			array<vk::PipelineShaderStageCreateInfo,2> chromacityDiagramShaders{
+			array<vk::PipelineShaderStageCreateInfo,2> chromacityDiagramCIE1931Shaders{
 				vk::PipelineShaderStageCreateInfo{
 					vk::PipelineShaderStageCreateFlags(),  // flags
 					vk::ShaderStageFlagBits::eVertex,  // stage
-					chromacityDiagramVertModule,  // module
+					chromacityDiagramCIE1931VertModule,  // module
+					"main",  // pName
+					nullptr  // pSpecializationInfo
+				},
+				vk::PipelineShaderStageCreateInfo{
+					vk::PipelineShaderStageCreateFlags(),  // flags
+					vk::ShaderStageFlagBits::eFragment,  // stage
+					interpolatedColorFragModule,  // module
+					"main",  // pName
+					nullptr  // pSpecializationInfo
+				},
+			};
+			array<vk::PipelineShaderStageCreateInfo,2> chromacityDiagramCIE2006Shaders{
+				vk::PipelineShaderStageCreateInfo{
+					vk::PipelineShaderStageCreateFlags(),  // flags
+					vk::ShaderStageFlagBits::eVertex,  // stage
+					chromacityDiagramCIE2006VertModule,  // module
 					"main",  // pName
 					nullptr  // pSpecializationInfo
 				},
@@ -835,9 +868,19 @@ void App::resize(VulkanWindow&, uint32_t& widthToBeSet, uint32_t& heightToBeSet)
 				0,        // vertexAttributeDescriptionCount
 				nullptr   // pVertexAttributeDescriptions
 			};
-			vk::PipelineInputAssemblyStateCreateInfo inputAssemblyState{
+			vk::PipelineInputAssemblyStateCreateInfo inputAssemblyTrianglesState{
+				vk::PipelineInputAssemblyStateCreateFlags(),  // flags
+				vk::PrimitiveTopology::eTriangleList,  // topology
+				VK_FALSE  // primitiveRestartEnable
+			};
+			vk::PipelineInputAssemblyStateCreateInfo inputAssemblyTriangleFanState{
 				vk::PipelineInputAssemblyStateCreateFlags(),  // flags
 				vk::PrimitiveTopology::eTriangleFan,  // topology
+				VK_FALSE  // primitiveRestartEnable
+			};
+			vk::PipelineInputAssemblyStateCreateInfo inputAssemblyLineStripState{
+				vk::PipelineInputAssemblyStateCreateFlags(),  // flags
+				vk::PrimitiveTopology::eLineStrip,  // topology
 				VK_FALSE  // primitiveRestartEnable
 			};
 			vk::Viewport viewport(0.f, 0.f, float(newSurfaceExtent.width), float(newSurfaceExtent.height), 0.f, 1.f);
@@ -891,13 +934,32 @@ void App::resize(VulkanWindow&, uint32_t& widthToBeSet, uint32_t& heightToBeSet)
 				array<float,4>{0.f,0.f,0.f,0.f}  // blendConstants
 			};
 
-			array<vk::GraphicsPipelineCreateInfo,2> createInfoList{
+			array<vk::GraphicsPipelineCreateInfo,3> createInfoList{
 				vk::GraphicsPipelineCreateInfo{
 					vk::PipelineCreateFlags(),  // flags
 					2,  // stageCount
-					chromacityDiagramShaders.data(),  // pStages
+					chromacityDiagramCIE1931Shaders.data(),  // pStages
 					&vertexInputState,  // pVertexInputState
-					&inputAssemblyState,  // pInputAssemblyState
+					&inputAssemblyLineStripState,  // pInputAssemblyState
+					nullptr, // pTessellationState
+					&viewportState,  // pViewportState
+					&rasterizationState,  // pRasterizationState
+					&multisampleState,  // pMultisampleState
+					nullptr,  // pDepthStencilState
+					&colorBlendState,  // pColorBlendState
+					nullptr,  // pDynamicState
+					pipelineLayout,  // layout
+					renderPass,  // renderPass
+					0,  // subpass
+					vk::Pipeline(nullptr),  // basePipelineHandle
+					-1 // basePipelineIndex
+				},
+				vk::GraphicsPipelineCreateInfo{
+					vk::PipelineCreateFlags(),  // flags
+					2,  // stageCount
+					chromacityDiagramCIE2006Shaders.data(),  // pStages
+					&vertexInputState,  // pVertexInputState
+					&inputAssemblyTriangleFanState,  // pInputAssemblyState
 					nullptr, // pTessellationState
 					&viewportState,  // pViewportState
 					&rasterizationState,  // pRasterizationState
@@ -916,7 +978,7 @@ void App::resize(VulkanWindow&, uint32_t& widthToBeSet, uint32_t& heightToBeSet)
 					2,  // stageCount
 					colorSpaceShaders.data(),  // pStages
 					&vertexInputState,  // pVertexInputState
-					&inputAssemblyState,  // pInputAssemblyState
+					&inputAssemblyTrianglesState,  // pInputAssemblyState
 					nullptr, // pTessellationState
 					&viewportState,  // pViewportState
 					&rasterizationState,  // pRasterizationState
@@ -945,7 +1007,7 @@ void App::resize(VulkanWindow&, uint32_t& widthToBeSet, uint32_t& heightToBeSet)
 					device.destroy(p);
 				throw runtime_error("Vulkan function vkCreateGraphicsPipelines() failed with error " + vk::to_string(r) + ".");
 			}
-			return tuple(pipelines[0], pipelines[1]);
+			return tuple(pipelines[0], pipelines[1], pipelines[2]);
 		}();
 }
 
@@ -1026,10 +1088,19 @@ void App::frame(VulkanWindow&)
 		vk::SubpassContents::eInline
 	);
 
-	// draw chromacity diagram
-	commandBuffer.bindPipeline(vk::PipelineBindPoint::eGraphics, chromacityDiagramPipeline);  // bind pipeline
+	// draw CIE 2006 chromacity diagram
+	commandBuffer.bindPipeline(vk::PipelineBindPoint::eGraphics, chromacityDiagramCIE2006Pipeline);
 	commandBuffer.draw(  // draw triangle fan
 		444,  // vertexCount
+		1,  // instanceCount
+		0,  // firstVertex
+		0   // firstInstance
+	);
+
+	// draw sihouette of CIE 1931 chromacity diagram
+	commandBuffer.bindPipeline(vk::PipelineBindPoint::eGraphics, chromacityDiagramCIE1931Pipeline);
+	commandBuffer.draw(  // draw line strip
+		472,  // vertexCount
 		1,  // instanceCount
 		0,  // firstVertex
 		0   // firstInstance
@@ -1065,7 +1136,7 @@ void App::frame(VulkanWindow&)
 					return 0;
 			}
 		}(surfaceFormat.colorSpace);
-	commandBuffer.bindPipeline(vk::PipelineBindPoint::eGraphics, colorSpacePipeline);  // bind pipeline
+	commandBuffer.bindPipeline(vk::PipelineBindPoint::eGraphics, colorSpacePipeline);
 	commandBuffer.draw(  // draw single triangle
 		3,  // vertexCount
 		1,  // instanceCount
