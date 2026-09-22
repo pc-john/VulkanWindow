@@ -2040,7 +2040,7 @@ VkSurfaceKHR VulkanWindow::createInternal(VkInstance instance, uint32_t width, u
 
 	// create surface
 	PFN_vkCreateXlibSurfaceKHR vulkanCreateXlibSurfaceKHR =
-		reinterpret_cast<PFN_vkCreateXlibSurfaceKHR>(vkGetInstanceProcAddr(_instance, "vkCreateXlibSurfaceKHR"));
+		reinterpret_cast<PFN_vkCreateXlibSurfaceKHR>(_vkGetInstanceProcAddr(_instance, "vkCreateXlibSurfaceKHR"));
 	if(vulkanCreateXlibSurfaceKHR == nullptr)
 		throw runtime_error("VulkanWindow: Failed to get vkCreateXlibSurfaceKHR function pointer.");
 	VkResult r =
@@ -2086,7 +2086,7 @@ VkSurfaceKHR VulkanWindow::createInternal(VkInstance instance, uint32_t width, u
 
 	// create surface
 	PFN_vkCreateWaylandSurfaceKHR vkCreateWaylandSurfaceKHR =
-		reinterpret_cast<PFN_vkCreateWaylandSurfaceKHR>(vkGetInstanceProcAddr(_instance, "vkCreateWaylandSurfaceKHR"));
+		reinterpret_cast<PFN_vkCreateWaylandSurfaceKHR>(_vkGetInstanceProcAddr(_instance, "vkCreateWaylandSurfaceKHR"));
 	if(vkCreateWaylandSurfaceKHR == nullptr)
 		throw runtime_error("VulkanWindow: Failed to get vkCreateWaylandSurfaceKHR function pointer.");
 	VkResult r =
