@@ -24,9 +24,9 @@ find_library(Vulkan_LIBRARY
 )
 
 # find glslangValidator
-find_program(Vulkan_GLSLANG_VALIDATOR_EXECUTABLE
+find_program(Vulkan_GLSLANG_EXECUTABLE
 	NAMES
-		glslangValidator
+		glslang glslangValidator
 	PATHS
 		"$ENV{VULKAN_SDK}/bin"
 		"$ENV{VULKAN_SDK}/bin32"
@@ -69,9 +69,9 @@ if(Vulkan_FOUND AND NOT TARGET Vulkan::Vulkan)
 endif()
 
 # Vulkan::glslangValidator target
-if(Vulkan_FOUND AND Vulkan_GLSLANG_VALIDATOR_EXECUTABLE AND NOT TARGET Vulkan::glslangValidator)
-	add_executable(Vulkan::glslangValidator IMPORTED)
-	set_property(TARGET Vulkan::glslangValidator PROPERTY IMPORTED_LOCATION "${Vulkan_GLSLANG_VALIDATOR_EXECUTABLE}")
+if(Vulkan_FOUND AND Vulkan_GLSLANG_EXECUTABLE AND NOT TARGET Vulkan::glslang)
+	add_executable(Vulkan::glslang IMPORTED)
+	set_property(TARGET Vulkan::glslang PROPERTY IMPORTED_LOCATION "${Vulkan_GLSLANG_EXECUTABLE}")
 endif()
 
 # Vulkan::glslc target
@@ -81,10 +81,14 @@ if(Vulkan_FOUND AND Vulkan_GLSLC_EXECUTABLE AND NOT TARGET Vulkan::glslc)
 endif()
 
 
-# add_shaders macro to convert GLSL shaders to spir-v
-# and creates depsList containing name of files that should be included among the source files
-macro(add_shaders nameList depsList)
-	foreach(name ${nameList})
+# add_shaders macro converts GLSL shaders to spir-v
+macro(Vulkan_add_shaders targetName glslFileList)
+
+	if(NOT Vulkan_GLSLANG_EXECUTABLE)
+		message(FATAL_ERROR "Vulkan: glslang executable not found.")
+	endif()
+
+	foreach(name ${glslFileList})
 		get_filename_component(directory ${name} DIRECTORY)
 		if(directory)
 			file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/${directory}")
@@ -92,8 +96,10 @@ macro(add_shaders nameList depsList)
 		add_custom_command(COMMENT "Converting ${name} to spir-v..."
 		                   MAIN_DEPENDENCY ${name}
 		                   OUTPUT ${name}.spv
-		                   COMMAND ${Vulkan_GLSLANG_VALIDATOR_EXECUTABLE} --target-env vulkan1.0 -x ${CMAKE_CURRENT_SOURCE_DIR}/${name} -o ${name}.spv)
+		                   COMMAND ${Vulkan_GLSLANG_EXECUTABLE} --target-env vulkan1.0 -x ${CMAKE_CURRENT_SOURCE_DIR}/${name} -o ${name}.spv)
 		source_group("Shaders" FILES ${name} ${CMAKE_CURRENT_BINARY_DIR}/${name}.spv)
-		list(APPEND ${depsList} ${name} ${CMAKE_CURRENT_BINARY_DIR}/${name}.spv)
+		target_sources(${targetName} PRIVATE ${name} ${CMAKE_CURRENT_BINARY_DIR}/${name}.spv)
 	endforeach()
+	target_include_directories(${targetName} PRIVATE ${CMAKE_CURRENT_BINARY_DIR})
+
 endmacro()

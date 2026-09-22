@@ -18,18 +18,17 @@ set(APP_SHADERS
 
 # dependencies
 find_package(Vulkan REQUIRED)
-set(libs Vulkan::Vulkan)
 
 # executable
-add_shaders("${APP_SHADERS}" APP_SHADER_DEPS)
-add_executable(${APP_NAME} ${APP_SOURCES} ${APP_INCLUDES} ${APP_SHADER_DEPS})
+add_executable(${APP_NAME} ${APP_SOURCES} ${APP_INCLUDES})
+Vulkan_add_shaders(${APP_NAME} "${APP_SHADERS}")
+
+# VulkanWindow
+include("../../src/VulkanWindow.cmake")
+VulkanWindowConfigure(${APP_NAME})
 
 # target
 set_property(TARGET ${APP_NAME} PROPERTY CXX_STANDARD 17)
-target_include_directories(${APP_NAME} PRIVATE ${CMAKE_CURRENT_BINARY_DIR})
-target_link_libraries(${APP_NAME} ${libs})
 
-# VulkanWindow
-include(${CMAKE_SOURCE_DIR}/CMakeModules/VulkanWindow.cmake)
-VulkanWindowConfigure(${APP_NAME}
-	${CMAKE_SOURCE_DIR}/src/VulkanWindow.h ${CMAKE_SOURCE_DIR}/src/VulkanWindow.cpp)
+# target
+target_link_libraries(${APP_NAME} Vulkan::Vulkan)
