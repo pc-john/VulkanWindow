@@ -54,6 +54,11 @@ function(VulkanWindowConfigure target)
 	# platform specific stuff
 	if("${VULKAN_WINDOW_GUI}" STREQUAL "Win32")
 
+		if(NOT WIN32)
+			Message(FATAL_ERROR "VulkanWindow: Cannot configure for Win32 on non-Windows platform. "
+			                    "Please, set VULKAN_WINDOW_GUI to different value (such as Wayland or Xlib).")
+		endif()
+
 		# configure for Win32
 		set_property(SOURCE "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/VulkanWindow.cpp" PROPERTY COMPILE_FLAGS -DVULKAN_WINDOW_WIN32)
 
