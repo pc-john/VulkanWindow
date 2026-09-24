@@ -18,3 +18,5 @@ set(CMAKE_MODULE_PATH "${CMAKE_SOURCE_DIR}/CMakeModules/;${CMAKE_MODULE_PATH}")
 foreach(prj ${PROJECTS})
 	add_subdirectory(${prj})
 endforeach()
+
+set_directory_properties(PROPERTIES VS_STARTUP_PROJECT HelloWindow)
