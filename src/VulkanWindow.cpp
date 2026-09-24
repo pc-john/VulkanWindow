@@ -4515,6 +4515,8 @@ void VulkanWindow::mainLoop()
 			break;
 
 		case SDL_MOUSEMOTION: {
+			if(event.motion.windowID == 0)
+				break;
 			VulkanWindow* w = reinterpret_cast<VulkanWindow*>(
 				SDL_GetWindowData(SDL_GetWindowFromID(event.motion.windowID), sdl::windowPointerName));
 			handleModifiers(w);
@@ -4522,6 +4524,8 @@ void VulkanWindow::mainLoop()
 			break;
 		}
 		case SDL_MOUSEBUTTONDOWN: {
+			if(event.button.windowID == 0)
+				break;
 			VulkanWindow* w = reinterpret_cast<VulkanWindow*>(
 				SDL_GetWindowData(SDL_GetWindowFromID(event.button.windowID), sdl::windowPointerName));
 			handleModifiers(w);
@@ -4530,6 +4534,8 @@ void VulkanWindow::mainLoop()
 			break;
 		}
 		case SDL_MOUSEBUTTONUP: {
+			if(event.button.windowID == 0)
+				break;
 			VulkanWindow* w = reinterpret_cast<VulkanWindow*>(
 				SDL_GetWindowData(SDL_GetWindowFromID(event.button.windowID), sdl::windowPointerName));
 			handleModifiers(w);
@@ -4539,6 +4545,8 @@ void VulkanWindow::mainLoop()
 		}
 		case SDL_MOUSEWHEEL:
 		{
+			if(event.button.windowID == 0)
+				break;
 			VulkanWindow* w = reinterpret_cast<VulkanWindow*>(
 				SDL_GetWindowData(SDL_GetWindowFromID(event.button.windowID), sdl::windowPointerName));
 
@@ -4561,6 +4569,13 @@ void VulkanWindow::mainLoop()
 		}
 
 		case SDL_KEYDOWN: {
+
+			// ignore key events without window
+			// (this might happen on application start up, for example)
+			if(event.key.windowID == 0)
+				break;
+
+			// process key
 			VulkanWindow* w = reinterpret_cast<VulkanWindow*>(
 				SDL_GetWindowData(SDL_GetWindowFromID(event.key.windowID), sdl::windowPointerName));
 			if(w->_keyCallback && event.key.repeat == 0)
@@ -4570,8 +4585,16 @@ void VulkanWindow::mainLoop()
 				w->_keyCallback(*w, KeyState::Pressed, scanCode, keyCode);
 			}
 			break;
+
 		}
 		case SDL_KEYUP: {
+
+			// ignore key events without window
+			// (this might happen on application start up, for example)
+			if(event.key.windowID == 0)
+				break;
+
+			// process key
 			VulkanWindow* w = reinterpret_cast<VulkanWindow*>(
 				SDL_GetWindowData(SDL_GetWindowFromID(event.key.windowID), sdl::windowPointerName));
 			if(w->_keyCallback && event.key.repeat == 0)
@@ -4581,6 +4604,7 @@ void VulkanWindow::mainLoop()
 				w->_keyCallback(*w, KeyState::Released, scanCode, keyCode);
 			}
 			break;
+
 		}
 
 		case SDL_QUIT:  // SDL_QUIT is generated on variety of reasons, including SIGINT and SIGTERM, or pressing Command-Q on Mac OS X.
