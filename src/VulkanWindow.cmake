@@ -64,12 +64,22 @@ function(VulkanWindowConfigure target)
 
 	elseif("${VULKAN_WINDOW_GUI}" STREQUAL "Xlib")
 
+		if(WIN32)
+			Message(FATAL_ERROR "VulkanWindow: Cannot configure for Xlib on Windows platform. "
+			                    "Please, set VULKAN_WINDOW_GUI to different value (such as Win32).")
+		endif()
+
 		# configure for Xlib
 		find_package(X11 REQUIRED)
 		set_property(SOURCE "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/VulkanWindow.cpp" PROPERTY COMPILE_FLAGS -DVULKAN_WINDOW_XLIB)
 		target_link_libraries(${target} X11 -l:libxkbcommon.so.0)
 
 	elseif("${VULKAN_WINDOW_GUI}" STREQUAL "Wayland")
+
+		if(WIN32)
+			Message(FATAL_ERROR "VulkanWindow: Cannot configure for Wayland on Windows platform. "
+			                    "Please, set VULKAN_WINDOW_GUI to different value (such as Win32).")
+		endif()
 
 		# detect paths
 		find_path(Wayland_client_INCLUDE_DIR NAMES wayland-client.h)
