@@ -9,19 +9,34 @@ It supports following platforms / back-ends:
 * SDL3
 * SDL2
 * GLFW3
-* QT6
-* QT5
+* Qt6
+* Qt5
 
 ## Compile
 
 Prerequisities:
-* Windows: Microsoft Visual C++ 2022 (earlier versions not tested)
+* Windows: Microsoft Visual C++ 2026 or 2022 (earlier versions not tested)
 * Linux: gcc, cmake, vulkan development files and tools,
   additional libraries depending on selected back-end (Xlib, Wayland, SDL3,...).
-  This usually translates to the following required packages on Ubuntu Linux distribution:
+  This usually translates to the following required packages on Ubuntu Linux distributions:
   * build-essential
   * cmake (or cmake-curses-gui)
   * libvulkan-dev and glslang-tools
-  * libx11-dev (if native xlib support is desired)
-  * libwayland-dev and wayland-protocols (if native wayland support is desired)
   * pkg-config (optional - helps cmake to find wayland-protocols path)
+  Packages depending on selected back-end:
+  * Win32:
+    * none
+  * Xlib:
+    * libx11-dev
+  * Wayland:
+    * libwayland-dev and wayland-protocols
+  * SDL3:
+    * libsdl3-dev
+  * SDL2:
+    * libsdl2-dev
+  * GLFW3:
+    * libglfw3-dev
+  * Qt6
+    * qt6-base-dev
+  * Qt5
+    * qtbase5-dev
