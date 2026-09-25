@@ -189,11 +189,9 @@ function(VulkanWindowConfigure target)
 
 		# configure for Qt5
 		# (version 5.10 brings Vulkan support, latest Qt 5.15.x might be needed
-		# on C++20 or in other circumstances)
+		# if targeting C++20 or on other circumstances)
 		find_package(Qt5 5.10 REQUIRED COMPONENTS Core Gui)
-		find_package(Vulkan)
 		set_property(SOURCE "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/VulkanWindow.cpp" PROPERTY COMPILE_FLAGS -DVULKAN_WINDOW_QT)
-		set_property(SOURCE "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/VulkanWindow.cpp" PROPERTY INCLUDE_DIRECTORIES "${Vulkan_INCLUDE_DIR}")
 		target_link_libraries(${target} Qt5::Gui)
 
 		# copy dependencies on Win32
@@ -247,7 +245,7 @@ function(VulkanWindowConfigure target)
 		# (No glfw3Config.cmake provided by glfw library for precompiled Win64 MSVC build
 		# even for version 3.5.1. So, we go without glfw3 target.)
 		set_property(SOURCE "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/VulkanWindow.cpp" PROPERTY COMPILE_FLAGS -DVULKAN_WINDOW_GLFW)
-		set_property(SOURCE "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/VulkanWindow.cpp" PROPERTY INCLUDE_DIRECTORIES "${glfw3_INCLUDE_DIR}")
+		target_include_directories(${target} PRIVATE "${glfw3_INCLUDE_DIR}")
 		target_link_libraries(${target} "${glfw3_LIBRARY}")
 		if(WIN32 AND glfw3_DLL)
 			add_custom_command(TARGET ${target}

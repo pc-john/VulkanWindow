@@ -1033,25 +1033,25 @@ void VulkanWindow::init()
 
 	// get command line arguments
 	ifstream f("/proc/self/cmdline", ios::binary);
-	altArgBuffer.clear();
+	qt::altArgBuffer.clear();
 	int c = f.get();
 	while(f) {
-		altArgBuffer.push_back(char(c));
+		qt::altArgBuffer.push_back(char(c));
 		c = f.get();
 	}
-	if(altArgBuffer.size()==0 || altArgBuffer.back()!='\0')
-		altArgBuffer.push_back('\0');
-	altArgv.clear();
-	altArgv.push_back(&altArgBuffer[0]);
-	for(int i=0,c=int(altArgBuffer.size())-1; i<c; i++)
-		if(altArgBuffer[i] == '\0')
-			altArgv.push_back(&altArgBuffer[i+1]);
-	altArgc = int(altArgv.size());
-	altArgv.push_back(nullptr);  // argv[argc] must be nullptr
+	if(qt::altArgBuffer.size()==0 || qt::altArgBuffer.back()!='\0')
+		qt::altArgBuffer.push_back('\0');
+	qt::altArgv.clear();
+	qt::altArgv.push_back(&qt::altArgBuffer[0]);
+	for(int i=0,c=int(qt::altArgBuffer.size())-1; i<c; i++)
+		if(qt::altArgBuffer[i] == '\0')
+			qt::altArgv.push_back(&qt::altArgBuffer[i+1]);
+	qt::altArgc = int(qt::altArgv.size());
+	qt::altArgv.push_back(nullptr);  // argv[argc] must be nullptr
 
 	// construct QGuiApplication
-	qGuiApplication = reinterpret_cast<QGuiApplication*>(&qGuiApplicationMemory);
-	new(qGuiApplication) QGuiApplication(altArgc, altArgv.data());
+	qt::qGuiApplication = reinterpret_cast<QGuiApplication*>(&qt::qGuiApplicationMemory);
+	new(qt::qGuiApplication) QGuiApplication(qt::altArgc, qt::altArgv.data());
 
 # endif
 
@@ -4933,20 +4933,6 @@ bool QtRenderingWindow::event(QEvent* event)
 				if(vulkanWindow->_mouseButtonCallback)
 					vulkanWindow->_mouseButtonCallback(*vulkanWindow, mouseButton, buttonState, vulkanWindow->_mouseState);
 				return true;
-
-			};
-		auto convertQtKeyToUtf32 =
-			[](int qtKey) -> uint32_t
-			{
-				switch(qtKey) {
-				case Qt::Key_Escape: return 0x1b;
-				case Qt::Key_Tab: return '\t';
-				case Qt::Key_Backspace: return 0x08;
-				case Qt::Key_Return: return '\n';
-				case Qt::Key_Enter: return '\n';
-				case Qt::Key_Space: return ' ';
-				default: return 0;
-				}
 			};
 
 		// handle verious events
